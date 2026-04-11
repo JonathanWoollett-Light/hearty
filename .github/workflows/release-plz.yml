@@ -21,9 +21,24 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: cargo check
+        run: cargo check
+
+      - name: cargo fmt --check
+        run: cargo fmt --check
+
+      - name: cargo clippy
+        run: cargo clippy -- --deny warnings
+
+      - name: cargo test
+        run: cargo test
 
       # Runs first: tags the commit and creates a GitHub release if the
       # release PR was just merged.
