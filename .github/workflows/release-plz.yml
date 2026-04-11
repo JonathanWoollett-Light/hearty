@@ -16,6 +16,9 @@ jobs:
       contents: write
       id-token: write  # required for crates.io trusted publishing (OIDC)
       pull-requests: write
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      releases: ${{ steps.release.outputs.releases }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -43,6 +46,7 @@ jobs:
       # Runs first: tags the commit and creates a GitHub release if the
       # release PR was just merged.
       - name: release-plz release
+        id: release
         uses: release-plz/action@v0.5
         with:
           command: release
@@ -59,3 +63,57 @@ jobs:
           command: release-pr
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-binaries:
+    name: Build ${{ matrix.target }}
+    needs: release-plz
+    if: needs.release-plz.outputs.releases_created == 'true'
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ fromJson(needs.release-plz.outputs.releases)[0].tag }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          tar czf "hearty-${{ fromJson(needs.release-plz.outputs.releases)[0].tag }}-x86_64-linux.tar.gz" \
+            -C target/${{ matrix.target }}/release hearty
+
+      - name: Package (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path target\${{ matrix.target }}\release\hearty.exe `
+            -DestinationPath "hearty-${{ fromJson(needs.release-plz.outputs.releases)[0].tag }}-x86_64-windows.zip"
+
+      - name: Upload (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: gh release upload "${{ fromJson(needs.release-plz.outputs.releases)[0].tag }}" "hearty-${{ fromJson(needs.release-plz.outputs.releases)[0].tag }}-x86_64-linux.tar.gz"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload (Windows)
+        if: matrix.os == 'windows-latest'
+        run: gh release upload "${{ fromJson(needs.release-plz.outputs.releases)[0].tag }}" "hearty-${{ fromJson(needs.release-plz.outputs.releases)[0].tag }}-x86_64-windows.zip"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
