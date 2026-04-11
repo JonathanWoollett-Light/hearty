@@ -1,17 +1,19 @@
+#![warn(clippy::restriction)]
+
 use clap::Parser;
+use miette::{Diagnostic, NamedSource, SourceSpan};
 use rayon::prelude::*;
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::fs::OpenOptions;
 use std::fs::read_to_string;
-use std::io::Write;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use termcolor::{BufferWriter, Color, ColorChoice, ColorSpec, WriteColor};
+use std::sync::Arc;
 use walkdir::DirEntry;
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, clap::ValueEnum)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, clap::ValueEnum, PartialOrd, Ord)]
 #[clap(rename_all = "snake_case")]
 enum Language {
     English,
@@ -73,7 +75,7 @@ impl TryFrom<&str> for Language {
     }
 }
 
-const MAX_MISSING: u64 = 200;
+const MAX_MISSING: u64 = 10;
 
 #[derive(Debug, Clone, Parser)]
 struct Args {
@@ -122,6 +124,25 @@ fn main() -> Result<(), String> {
     }
 }
 
+#[derive(Debug, Diagnostic)]
+#[diagnostic(severity(warning))]
+struct MissingLocalisation {
+    #[source_code]
+    src: NamedSource<Arc<String>>,
+    #[label("missing localisation")]
+    span: SourceSpan,
+    key: String,
+    missing: Vec<String>,
+}
+
+impl std::fmt::Display for MissingLocalisation {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "\"{}\" not localised in: {}", self.key, self.missing.join(", "))
+    }
+}
+
+impl std::error::Error for MissingLocalisation {}
+
 fn fmt_commas(n: u64) -> String {
     let s = n.to_string();
     let mut out = String::with_capacity(s.len() + s.len() / 3);
@@ -146,16 +167,14 @@ fn inner_main() -> Result<(), Box<dyn Error>> {
         .into());
     }
 
-    println!("Checking path: {}", args.path.display());
-
     let walker = walkdir::WalkDir::new(&args.path);
     let State { keys, things, .. } = walker
         .into_iter()
         .par_bridge()
         .try_fold(
             || State {
-                keys: HashMap::new(),
-                things: HashMap::new(),
+                keys: BTreeMap::new(),
+                things: BTreeMap::new(),
                 args: args.clone(),
             },
             iter_entry,
@@ -171,7 +190,7 @@ fn inner_main() -> Result<(), Box<dyn Error>> {
                  things: item_things,
                  ..
              }| {
-                for (lang, lang_keys) in item_keys.into_iter() {
+                for (lang, lang_keys) in item_keys {
                     if let Some(x) = keys.get_mut(&lang) {
                         x.extend(lang_keys);
                     } else {
@@ -185,62 +204,44 @@ fn inner_main() -> Result<(), Box<dyn Error>> {
         .unwrap()
         .unwrap();
 
-    let active: HashSet<Language> = args.active_languages().into_iter().collect();
-    let keys: HashMap<Language, HashSet<String>> = keys
+    let active: BTreeSet<Language> = args.active_languages().into_iter().collect();
+    let keys: BTreeMap<Language, BTreeSet<String>> = keys
         .into_iter()
         .filter(|(lang, _)| active.contains(lang))
         .collect();
 
-    let bufwtr = BufferWriter::stdout(ColorChoice::Always);
-    let path_width = things
-        .values()
-        .map(|(p, line)| format!("{}:{line}", p.display()).len())
-        .max()
-        .unwrap_or(0);
-    let thing_width = things.keys().map(|t| t.len()).max().unwrap_or(0);
-    let lang_width = keys.keys().map(|l| l.as_str().len()).max().unwrap_or(0);
+    let handler = miette::GraphicalReportHandler::new();
+    let mut file_cache: BTreeMap<std::path::PathBuf, Arc<String>> = BTreeMap::new();
     let mut missing = 0u64;
-    for (thing, (source, line)) in &things {
-        if keys.values().all(|lang_keys| lang_keys.contains(thing)) {
+    let mut printed = 0u64;
+    for (thing, (source, offset)) in &things {
+        let missing_langs: Vec<String> = keys.iter()
+            .filter(|(_, lang_keys)| !lang_keys.contains(thing))
+            .map(|(lang, _)| lang.to_string())
+            .collect();
+        if missing_langs.is_empty() {
             continue;
         }
         missing += 1;
-        if missing > MAX_MISSING {
+        if printed >= MAX_MISSING {
             continue;
         }
-        let mut buffer = bufwtr.buffer();
-        write!(
-            &mut buffer,
-            "{:<path_width$}  {thing:<thing_width$}",
-            format!("{}:{line}", source.display())
-        )
-        .unwrap();
-        for (lang, lang_keys) in &keys {
-            let color = if lang_keys.contains(thing) {
-                Color::Green
-            } else {
-                Color::Red
-            };
-            buffer
-                .set_color(ColorSpec::new().set_fg(Some(color)))
-                .unwrap();
-            write!(&mut buffer, "  {lang:<lang_width$}").unwrap();
-        }
-        buffer.reset().unwrap();
-        writeln!(&mut buffer).unwrap();
-        bufwtr.print(&buffer).unwrap();
+        printed += 1;
+        let content = file_cache
+            .entry(source.clone())
+            .or_insert_with(|| Arc::new(read_to_string(source).unwrap_or_default()));
+        let diag = MissingLocalisation {
+            src: NamedSource::new(source.display().to_string(), Arc::clone(content)),
+            span: (*offset, thing.len()).into(),
+            key: thing.clone(),
+            missing: missing_langs,
+        };
+        let mut out = String::new();
+        handler.render_report(&mut out, &diag).unwrap();
+        eprint!("{out}");
     }
     if missing > MAX_MISSING {
-        let mut buffer = bufwtr.buffer();
-        let more_msg = format!("⋮ ({} more)", missing - MAX_MISSING);
-        write!(&mut buffer, "{more_msg:<path_width$}  {:<thing_width$}", "").unwrap();
-        for _ in &keys {
-            buffer.reset().unwrap();
-            write!(&mut buffer, "  {:<lang_width$}", "⋮").unwrap();
-        }
-        buffer.reset().unwrap();
-        writeln!(&mut buffer).unwrap();
-        bufwtr.print(&buffer).unwrap();
+        eprintln!("⋮ ({} more not shown)", missing - MAX_MISSING);
     }
 
     println!(
@@ -258,8 +259,8 @@ fn inner_main() -> Result<(), Box<dyn Error>> {
 
 #[derive(Debug, Clone)]
 struct State {
-    keys: HashMap<Language, HashSet<String>>,
-    things: HashMap<String, (std::path::PathBuf, u32)>,
+    keys: BTreeMap<Language, BTreeSet<String>>,
+    things: BTreeMap<String, (std::path::PathBuf, usize)>,
     args: Args,
 }
 
@@ -300,18 +301,18 @@ fn iter_entry(
     {
         things.extend(read_technologies(path).unwrap_or_default());
     }
-    // Note: things.extend() on HashMap silently overwrites on duplicate keys,
+    // Note: things.extend() on BTreeMap silently overwrites on duplicate keys,
     // which is fine — same key in multiple files just keeps one source path.
 
     Ok(State { keys, things, args })
 }
 
-fn load_localisation(lang: Language, path: &Path) -> Option<(Language, HashSet<String>)> {
+fn load_localisation(lang: Language, path: &Path) -> Option<(Language, BTreeSet<String>)> {
     let mut file = BufReader::new(OpenOptions::new().read(true).open(path).ok()?);
     file.skip_until(b'\n').ok()?; // skip language header line
 
     let mut line = String::new();
-    let mut keys = HashSet::new();
+    let mut keys = BTreeSet::new();
     while let Ok(1..) = file.read_line(&mut line) {
         if let Some(key) = line
             .trim_start()
@@ -336,59 +337,39 @@ const EVENT_TYPES: &[&str] = &[
     "operative_leader_event",
 ];
 
-/// Builds a vec of byte offsets where each line starts. Built once per file.
-fn build_line_index(s: &str) -> Vec<usize> {
-    let mut idx = vec![0];
-    idx.extend(s.match_indices('\n').map(|(i, _)| i + 1));
-    idx
+fn find_offset(haystack: &str, needle: &str) -> usize {
+    haystack.find(needle).unwrap_or(0)
 }
 
-/// Returns the 1-based line number for a byte offset via binary search.
-fn line_of_offset(index: &[usize], offset: usize) -> u32 {
-    index.partition_point(|&o| o <= offset) as u32
-}
-
-fn find_line(haystack: &str, index: &[usize], needle: &str) -> u32 {
-    haystack
-        .find(needle)
-        .map(|offset| line_of_offset(index, offset))
-        .unwrap_or(1)
-}
-
-fn read_events(path: &Path) -> Option<HashMap<String, (std::path::PathBuf, u32)>> {
+fn read_events(path: &Path) -> Option<BTreeMap<String, (std::path::PathBuf, usize)>> {
     let string = read_to_string(path).ok()?;
-    let line_index = build_line_index(&string);
     let tape = jomini::TextTape::from_slice(string.as_bytes()).ok()?;
     let reader = tape.windows1252_reader();
-    let mut events = HashMap::new();
+    let mut events = BTreeMap::new();
 
     for (key, _op, value) in reader.fields() {
         if !EVENT_TYPES.contains(&key.read_str().as_ref()) {
             continue;
         }
-        let Ok(obj) = value.read_object() else {
-            continue;
-        };
+        let Ok(obj) = value.read_object() else { continue };
         for (inner_key, _op, inner_value) in obj.fields() {
             match inner_key.read_str().as_ref() {
                 "title" | "desc" => {
                     if let Ok(scalar) = inner_value.read_scalar() {
                         let s = scalar.to_string();
-                        let line = find_line(&string, &line_index, &s);
-                        events.insert(s, (path.to_path_buf(), line));
+                        let offset = find_offset(&string, &s);
+                        events.insert(s, (path.to_path_buf(), offset));
                     }
                 }
                 "option" => {
-                    let Ok(option) = inner_value.read_object() else {
-                        continue;
-                    };
+                    let Ok(option) = inner_value.read_object() else { continue };
                     for (opt_key, _op, opt_value) in option.fields() {
                         if opt_key.read_str() == "name"
                             && let Ok(scalar) = opt_value.read_scalar()
                         {
                             let s = scalar.to_string();
-                            let line = find_line(&string, &line_index, &s);
-                            events.insert(s, (path.to_path_buf(), line));
+                            let offset = find_offset(&string, &s);
+                            events.insert(s, (path.to_path_buf(), offset));
                         }
                     }
                 }
@@ -400,34 +381,29 @@ fn read_events(path: &Path) -> Option<HashMap<String, (std::path::PathBuf, u32)>
     Some(events)
 }
 
-fn read_focuses(path: &Path) -> Option<HashMap<String, (std::path::PathBuf, u32)>> {
+fn read_focuses(path: &Path) -> Option<BTreeMap<String, (std::path::PathBuf, usize)>> {
     let string = read_to_string(path).ok()?;
-    let line_index = build_line_index(&string);
     let tape = jomini::TextTape::from_slice(string.as_bytes()).ok()?;
     let reader = tape.windows1252_reader();
-    let mut focuses = HashMap::new();
+    let mut focuses = BTreeMap::new();
 
     for (key, _op, value) in reader.fields() {
         if key.read_str() != "focus_tree" {
             continue;
         }
-        let Ok(tree) = value.read_object() else {
-            continue;
-        };
+        let Ok(tree) = value.read_object() else { continue };
         for (tree_key, _op, tree_value) in tree.fields() {
             if tree_key.read_str() != "focus" {
                 continue;
             }
-            let Ok(focus) = tree_value.read_object() else {
-                continue;
-            };
+            let Ok(focus) = tree_value.read_object() else { continue };
             for (focus_key, _op, focus_value) in focus.fields() {
                 if focus_key.read_str() == "id"
                     && let Ok(scalar) = focus_value.read_scalar()
                 {
                     let s = scalar.to_string();
-                    let line = find_line(&string, &line_index, &s);
-                    focuses.insert(s, (path.to_path_buf(), line));
+                    let offset = find_offset(&string, &s);
+                    focuses.insert(s, (path.to_path_buf(), offset));
                 }
             }
         }
@@ -436,12 +412,11 @@ fn read_focuses(path: &Path) -> Option<HashMap<String, (std::path::PathBuf, u32)
     Some(focuses)
 }
 
-fn read_technologies(path: &Path) -> Option<HashMap<String, (std::path::PathBuf, u32)>> {
+fn read_technologies(path: &Path) -> Option<BTreeMap<String, (std::path::PathBuf, usize)>> {
     let string = read_to_string(path).ok()?;
-    let line_index = build_line_index(&string);
     let tape = jomini::TextTape::from_slice(string.as_bytes()).ok()?;
     let reader = tape.windows1252_reader();
-    let mut techs = HashMap::new();
+    let mut techs = BTreeMap::new();
 
     for (key, _op, value) in reader.fields() {
         if key.read_str() != "technologies" {
@@ -455,8 +430,8 @@ fn read_technologies(path: &Path) -> Option<HashMap<String, (std::path::PathBuf,
             if s.starts_with('@') {
                 continue;
             }
-            let line = find_line(&string, &line_index, &s);
-            techs.insert(s.into_owned(), (path.to_path_buf(), line));
+            let offset = find_offset(&string, &s);
+            techs.insert(s.into_owned(), (path.to_path_buf(), offset));
         }
     }
 
