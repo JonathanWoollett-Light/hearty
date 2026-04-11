@@ -264,10 +264,16 @@ fn inner_main() -> Result<(), AppError> {
         .map_err(|()| AppError::WalkFailed)?;
 
     let active: BTreeSet<Language> = args.active_languages().into_iter().collect();
-    let keys: BTreeMap<Language, BTreeSet<String>> = keys
+    let mut keys: BTreeMap<Language, BTreeSet<String>> = keys
         .into_iter()
         .filter(|(lang, _)| active.contains(lang))
         .collect();
+    // Ensure every active language has an entry. If a mod has no localisation
+    // files for a language, that language won't appear in `keys` at all, which
+    // would cause the missing-check loop to silently skip it.
+    for lang in &active {
+        keys.entry(lang.clone()).or_default();
+    }
 
     let handler = miette::GraphicalReportHandler::new();
     let mut file_cache: BTreeMap<std::path::PathBuf, Arc<str>> = BTreeMap::new();
