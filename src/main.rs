@@ -1,4 +1,5 @@
 #![warn(clippy::restriction)]
+#![allow(clippy::single_call_fn)]
 
 use clap::Parser;
 use miette::{Diagnostic, NamedSource, SourceSpan};
