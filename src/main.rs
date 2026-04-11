@@ -175,7 +175,7 @@ impl Args {
     }
 }
 
-/// "{key}" not localised in: {missing_langs}
+/// "{key}" not localised in: {missing_langs}.
 #[derive(displaydoc::Display, Debug, Diagnostic)]
 #[diagnostic(severity(warning))]
 struct MissingLocalisation {
