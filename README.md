@@ -10,6 +10,21 @@ Most mods are very messy, this is a tool to help with a little cleaning.
 
 The plan is to add more lints over time.
 
+### Installation
+
+**Linux**
+```bash
+curl -L https://github.com/JonathanWoollett-Light/hearty/releases/latest/download/hearty-x86_64-linux.tar.gz | tar xz
+./hearty /path/to/mod
+```
+
+**Windows** (PowerShell)
+```powershell
+Invoke-WebRequest https://github.com/JonathanWoollett-Light/hearty/releases/latest/download/hearty-x86_64-windows.zip -OutFile hearty.zip
+Expand-Archive hearty.zip -DestinationPath .
+.\hearty.exe "C:\path\to\mod"
+```
+
 ### GitHub Action
 
 Can be used in a GitHub action with
