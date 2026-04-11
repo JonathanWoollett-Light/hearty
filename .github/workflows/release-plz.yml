@@ -94,26 +94,21 @@ jobs:
 
       - name: Package (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: |
-          tar czf "hearty-${{ fromJson(needs.release-plz.outputs.releases)[0].tag }}-x86_64-linux.tar.gz" \
-            -C target/${{ matrix.target }}/release hearty
+        run: tar czf hearty-x86_64-linux.tar.gz -C target/${{ matrix.target }}/release hearty
 
       - name: Package (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
-        run: |
-          Compress-Archive `
-            -Path target\${{ matrix.target }}\release\hearty.exe `
-            -DestinationPath "hearty-${{ fromJson(needs.release-plz.outputs.releases)[0].tag }}-x86_64-windows.zip"
+        run: Compress-Archive -Path target\${{ matrix.target }}\release\hearty.exe -DestinationPath hearty-x86_64-windows.zip
 
       - name: Upload (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: gh release upload "${{ fromJson(needs.release-plz.outputs.releases)[0].tag }}" "hearty-${{ fromJson(needs.release-plz.outputs.releases)[0].tag }}-x86_64-linux.tar.gz"
+        run: gh release upload "${{ fromJson(needs.release-plz.outputs.releases)[0].tag }}" hearty-x86_64-linux.tar.gz
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload (Windows)
         if: matrix.os == 'windows-latest'
-        run: gh release upload "${{ fromJson(needs.release-plz.outputs.releases)[0].tag }}" "hearty-${{ fromJson(needs.release-plz.outputs.releases)[0].tag }}-x86_64-windows.zip"
+        run: gh release upload "${{ fromJson(needs.release-plz.outputs.releases)[0].tag }}" hearty-x86_64-windows.zip
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
