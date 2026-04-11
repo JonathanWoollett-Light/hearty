@@ -1,8 +1,8 @@
 # hearty
 
 [![Crates.io Version](https://img.shields.io/crates/v/hearty)](https://crates.io/crates/hearty)
-[![Deps.rs Crate Dependencies (latest)](https://img.shields.io/deps-rs/hearty/latest)](https://crates.io/crates/hearty/0.1.2/dependencies)
-[![Crates.io Size](https://img.shields.io/crates/size/hearty)](https://crates.io/crates/hearty/0.1.2)
+[![Deps.rs Crate Dependencies (latest)](https://img.shields.io/deps-rs/hearty/latest)](https://crates.io/crates/hearty/dependencies)
+[![Crates.io Size](https://img.shields.io/crates/size/hearty)](https://crates.io/crates/hearty)
 
 Lints for hoi4 mods.
 
