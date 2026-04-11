@@ -306,7 +306,7 @@ fn inner_main() -> Result<(), AppError> {
     }
 
     println!(
-        "\nFound {} missing localisations (out of {}) in {:.2?} seconds.",
+        "\nFound {} missing localisations (out of {}) in {:.2?}.",
         fmt_commas(missing),
         fmt_commas(things.len() as u64),
         start.elapsed()
