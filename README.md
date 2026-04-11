@@ -1,8 +1,8 @@
 # hearty
 
-![Crates.io Version](https://img.shields.io/crates/v/hearty)
-![Deps.rs Crate Dependencies (latest)](https://img.shields.io/deps-rs/hearty/latest)
-![Crates.io Size](https://img.shields.io/crates/size/hearty)
+[![Crates.io Version](https://img.shields.io/crates/v/hearty)](https://crates.io/crates/hearty)
+[![Deps.rs Crate Dependencies (latest)](https://img.shields.io/deps-rs/hearty/latest)](https://crates.io/crates/hearty/0.1.2/dependencies)
+[![Crates.io Size](https://img.shields.io/crates/size/hearty)](https://crates.io/crates/hearty/0.1.2)
 
 Lints for hoi4 mods.
 
@@ -17,7 +17,7 @@ Can be used in a GitHub action with
 - name: Install hearty
     uses: baptiste0928/cargo-install@v3
     with:
-    crate: hearty
+        crate: hearty
 
 - name: Run hearty lint
     run: hearty
