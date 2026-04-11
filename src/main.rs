@@ -1,6 +1,20 @@
 #![warn(clippy::pedantic)]
 #![warn(clippy::restriction)]
-#![allow(clippy::single_call_fn)]
+#![allow(
+    clippy::single_call_fn,
+    clippy::implicit_return,
+    clippy::absolute_paths,
+    clippy::std_instead_of_core,
+    clippy::std_instead_of_alloc,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::missing_trait_methods,
+    clippy::unseparated_literal_suffix,
+    clippy::separated_literal_suffix,
+    clippy::blanket_clippy_restriction_lints,
+    clippy::else_if_without_else,
+    reason = "Mitigates excessive and sometimes conflicting warnings from `clippy::restriction`."
+)]
 
 use clap::Parser;
 use miette::{Diagnostic, NamedSource, SourceSpan};
@@ -139,7 +153,12 @@ struct MissingLocalisation {
 
 impl std::fmt::Display for MissingLocalisation {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "\"{}\" not localised in: {}", self.key, self.missing.join(", "))
+        write!(
+            f,
+            "\"{}\" not localised in: {}",
+            self.key,
+            self.missing.join(", ")
+        )
     }
 }
 
@@ -217,7 +236,8 @@ fn inner_main() -> Result<(), Box<dyn Error>> {
     let mut missing = 0u64;
     let mut printed = 0u64;
     for (thing, (source, offset)) in &things {
-        let missing_langs: Vec<String> = keys.iter()
+        let missing_langs: Vec<String> = keys
+            .iter()
             .filter(|(_, lang_keys)| !lang_keys.contains(thing))
             .map(|(lang, _)| lang.to_string())
             .collect();
@@ -353,7 +373,9 @@ fn read_events(path: &Path) -> Option<BTreeMap<String, (std::path::PathBuf, usiz
         if !EVENT_TYPES.contains(&key.read_str().as_ref()) {
             continue;
         }
-        let Ok(obj) = value.read_object() else { continue };
+        let Ok(obj) = value.read_object() else {
+            continue;
+        };
         for (inner_key, _op, inner_value) in obj.fields() {
             match inner_key.read_str().as_ref() {
                 "title" | "desc" => {
@@ -364,7 +386,9 @@ fn read_events(path: &Path) -> Option<BTreeMap<String, (std::path::PathBuf, usiz
                     }
                 }
                 "option" => {
-                    let Ok(option) = inner_value.read_object() else { continue };
+                    let Ok(option) = inner_value.read_object() else {
+                        continue;
+                    };
                     for (opt_key, _op, opt_value) in option.fields() {
                         if opt_key.read_str() == "name"
                             && let Ok(scalar) = opt_value.read_scalar()
@@ -393,12 +417,16 @@ fn read_focuses(path: &Path) -> Option<BTreeMap<String, (std::path::PathBuf, usi
         if key.read_str() != "focus_tree" {
             continue;
         }
-        let Ok(tree) = value.read_object() else { continue };
+        let Ok(tree) = value.read_object() else {
+            continue;
+        };
         for (tree_key, _op, tree_value) in tree.fields() {
             if tree_key.read_str() != "focus" {
                 continue;
             }
-            let Ok(focus) = tree_value.read_object() else { continue };
+            let Ok(focus) = tree_value.read_object() else {
+                continue;
+            };
             for (focus_key, _op, focus_value) in focus.fields() {
                 if focus_key.read_str() == "id"
                     && let Ok(scalar) = focus_value.read_scalar()
