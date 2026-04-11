@@ -1,3 +1,4 @@
+#![warn(clippy::pedantic)]
 #![warn(clippy::restriction)]
 #![allow(clippy::single_call_fn)]
 
