@@ -31,15 +31,19 @@
 )]
 
 use clap::Parser;
+use keyvalues_parser::{Value as VdfValue, Vdf};
 use miette::{Diagnostic, NamedSource, SourceSpan};
 use rayon::prelude::*;
+use serde_json::{Map, Value as JsonValue};
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::collections::HashSet;
 use std::fs::OpenOptions;
 use std::fs::read_to_string;
 use std::io::{BufRead as _, BufReader};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::SystemTime;
 use walkdir::DirEntry;
 
 /// Max number of diagnostics to print before truncating with ⋮.
@@ -53,6 +57,12 @@ const EVENT_TYPES: &[&str] = &[
     "state_event",
     "unit_leader_event",
 ];
+
+const HOI4_ID: &str = "394360";
+/// Cache file name written inside the cache directory.
+const HOI4_CACHE_FILE: &str = "hoi4-version-cache.json";
+/// Maximum age of the on-disk cache before steamcmd is re-invoked (86 400 s = 24 h).
+const HOI4_CACHE_MAX_AGE_SECS: u64 = 86_400;
 
 #[derive(Debug, thiserror::Error)]
 enum AppError {
@@ -193,6 +203,33 @@ struct MissingLocalisation {
 
 impl std::error::Error for MissingLocalisation {}
 
+/// duplicate key "{key}" in descriptor.mod.
+#[derive(displaydoc::Display, Debug, Diagnostic)]
+#[diagnostic(severity(warning))]
+struct DuplicateDescriptorKey {
+    key: String,
+    #[label("duplicate key")]
+    span: SourceSpan,
+    #[source_code]
+    src: NamedSource<Arc<str>>,
+}
+
+impl std::error::Error for DuplicateDescriptorKey {}
+
+/// descriptor.mod supported_version "{supported_version}" does not match latest HOI4 {latest_version}.
+#[derive(displaydoc::Display, Debug, Diagnostic)]
+#[diagnostic(severity(warning))]
+struct DescriptorVersionMismatch {
+    latest_version: String,
+    #[label("unsupported version")]
+    span: SourceSpan,
+    #[source_code]
+    src: NamedSource<Arc<str>>,
+    supported_version: String,
+}
+
+impl std::error::Error for DescriptorVersionMismatch {}
+
 #[derive(Debug, Clone)]
 struct State {
     args: Args,
@@ -220,9 +257,9 @@ fn inner_main() -> Result<(), AppError> {
     let start = std::time::Instant::now();
     let args = Args::parse();
 
-    if !args.path.join("descriptor.mod").exists() {
-        return Err(AppError::NotModDir(args.path.clone()));
-    }
+    let descriptor = read_to_string(args.path.join("descriptor.mod"))
+        .map_err(|_e| AppError::NotModDir(args.path.clone()))?;
+    run_steamcmd_version_check(&descriptor);
 
     println!("Checking path: {}", args.path.display());
 
@@ -494,4 +531,190 @@ fn read_technologies(path: &Path) -> Option<BTreeMap<String, (std::path::PathBuf
     }
 
     Some(techs)
+}
+
+/// Returns the path to the HOI4 version cache file.
+///
+/// The directory is read from the `HEARTY_CACHE_DIR` environment variable when set.
+/// In GitHub Actions, point `actions/cache` at that path (or at `.hearty-cache`) so
+/// the file survives across workflow runs and steamcmd only runs when the cache is stale:
+///
+/// ```yaml
+/// - uses: actions/cache@v4
+///   with:
+///     path: .hearty-cache
+///     key: hoi4-version-cache
+/// ```
+fn cache_path() -> std::path::PathBuf {
+    std::env::var_os("HEARTY_CACHE_DIR")
+        .map_or_else(
+            || std::path::PathBuf::from(".hearty-cache"),
+            std::path::PathBuf::from,
+        )
+        .join(HOI4_CACHE_FILE)
+}
+
+/// Reads the on-disk cache and returns the HOI4 app data if it is younger than
+/// [`HOI4_CACHE_MAX_AGE_SECS`]. Returns `None` if the cache is missing, corrupt,
+/// or expired.
+fn read_cache() -> Option<serde_json::Value> {
+    let content = read_to_string(cache_path()).ok()?;
+    let cache: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let fetched_at = cache.get("fetched_at_secs")?.as_u64()?;
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    let data = cache.get("data")?;
+    (now.saturating_sub(fetched_at) < HOI4_CACHE_MAX_AGE_SECS).then(|| data.clone())
+}
+
+/// Writes the HOI4 app data and a `fetched_at_secs` Unix timestamp to the cache
+/// file so [`read_cache`] can assess freshness on the next run. Failures are
+/// silently ignored — the cache is best-effort.
+fn write_cache(data: &serde_json::Value) {
+    let path = cache_path();
+    let now_secs = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let payload = serde_json::json!({
+        "fetched_at_secs": now_secs,
+        "data": data,
+    });
+    let Ok(serialized) = serde_json::to_string(&payload) else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap_or_default();
+    }
+    std::fs::write(path, serialized).unwrap_or_default();
+}
+
+fn run_steamcmd_version_check(descriptor: &str) {
+    let hoi4_data_opt = read_cache().or_else(|| {
+        let data = std::process::Command::new("steamcmd")
+            .args(["+login", "anonymous", "+app_info_print", HOI4_ID, "+quit"])
+            .output()
+            .ok()
+            .and_then(|out| {
+                let text = String::from_utf8_lossy(&out.stdout);
+                let start = text.find(&format!("\"{HOI4_ID}\""))?;
+                let end = text.rfind("Unloading Steam API")?;
+                let values = Vdf::from(keyvalues_parser::parse(text.get(start..end)?).ok()?);
+                Some(vdf_to_json(&values))
+            })?;
+        write_cache(&data);
+        Some(data)
+    });
+    if let Some(hoi4_data) = hoi4_data_opt {
+        let _: Option<()> = check_descriptor(descriptor, &hoi4_data);
+    }
+}
+
+fn check_descriptor(string: &str, hoi4_data: &serde_json::Value) -> Option<()> {
+    let branches = hoi4_data
+        .as_object()?
+        .get(HOI4_ID)?
+        .as_object()?
+        .get("depots")?
+        .as_object()?
+        .get("branches")?
+        .as_object()?;
+    let versions = branches
+        .keys()
+        .filter_map(|k| {
+            semver::Version::parse(k).ok().or_else(|| {
+                // HOI4 sometimes uses 4-part versions (e.g. "1.17.3.0"); drop the last component.
+                let trimmed = k.rsplit_once('.')?.0;
+                semver::Version::parse(trimmed).ok()
+            })
+        })
+        .collect::<Vec<_>>();
+    let latest_version = versions.into_iter().max()?;
+
+    let src: Arc<str> = Arc::from(string);
+    let handler = miette::GraphicalReportHandler::new();
+
+    let tape = jomini::TextTape::from_slice(string.as_bytes()).ok()?;
+    let reader = tape.windows1252_reader();
+    let mut fields = HashSet::new();
+    for (key, _, value) in reader.fields() {
+        // Check for duplicate keys.
+        let key = key.read_string();
+        if fields.contains(&key) && key != "replace_path" {
+            let key_str = key.clone();
+            let first_end = string.find(&key_str).map_or(0, |p| p + key_str.len());
+            let offset = string
+                .get(first_end..)
+                .and_then(|s| s.find(&key_str))
+                .map_or(0, |o| o + first_end);
+            let key_len = key_str.len();
+            let diag = DuplicateDescriptorKey {
+                key: key_str,
+                span: (offset, key_len).into(),
+                src: NamedSource::new("descriptor.mod", Arc::clone(&src)),
+            };
+            let mut out = String::new();
+            if handler.render_report(&mut out, &diag).is_ok() {
+                eprint!("{out}");
+            }
+            continue;
+        }
+
+        // Check supported_version field.
+        if key == "supported_version" {
+            let req_str = value.read_string().ok()?;
+            let req = semver::VersionReq::parse(&req_str).ok()?;
+            if !req.matches(&latest_version) {
+                let offset = find_offset(string, &req_str);
+                let req_len = req_str.len();
+                let diag = DescriptorVersionMismatch {
+                    supported_version: req_str,
+                    latest_version: latest_version.to_string(),
+                    span: (offset, req_len).into(),
+                    src: NamedSource::new("descriptor.mod", Arc::clone(&src)),
+                };
+                let mut out = String::new();
+                if handler.render_report(&mut out, &diag).is_ok() {
+                    eprint!("{out}");
+                }
+            }
+        }
+
+        // Track fields for later duplicate key check.
+        fields.insert(key);
+    }
+    Some(())
+}
+
+fn vdf_value_to_json(value: &VdfValue) -> JsonValue {
+    match value {
+        VdfValue::Str(s) => JsonValue::String(s.to_string()),
+        VdfValue::Obj(obj) => {
+            let mut map = Map::new();
+            for (key, values) in obj.iter() {
+                let mut converted: Vec<JsonValue> = values.iter().map(vdf_value_to_json).collect();
+                // VDF allows duplicate keys at the same level, stored as Vec.
+                // Collapse single-element vecs to the bare value; keep arrays for duplicates.
+                let entry = if converted.len() == 1 {
+                    converted.remove(0)
+                } else {
+                    JsonValue::Array(converted)
+                };
+                map.insert(key.to_string(), entry);
+            }
+            JsonValue::Object(map)
+        }
+    }
+}
+
+#[must_use]
+#[inline]
+pub fn vdf_to_json(vdf: &Vdf) -> JsonValue {
+    // Wrap the root key/value into a single-entry object so the top-level
+    // "394360" key is preserved.
+    let mut root = Map::new();
+    root.insert(vdf.key.to_string(), vdf_value_to_json(&vdf.value));
+    JsonValue::Object(root)
 }

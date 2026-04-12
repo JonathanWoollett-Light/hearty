@@ -34,6 +34,12 @@ Can be used in a GitHub action with
     with:
         crate: hearty
 
+- name: Cache HOI4 data
+  uses: actions/cache@v4
+  with:
+    path: .hearty-cache
+    key: hoi4-version-cache
+
 - name: Run hearty lint
     run: hearty
 ```
