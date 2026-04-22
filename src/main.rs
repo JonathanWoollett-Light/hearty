@@ -33,10 +33,14 @@
 use clap::Parser;
 use keyvalues_parser::{Value as VdfValue, Vdf};
 use miette::{Diagnostic, NamedSource, SourceSpan};
+use petgraph::Direction;
+use petgraph::Graph;
+use petgraph::visit::Walker as _;
 use rayon::prelude::*;
 use serde_json::{Map, Value as JsonValue};
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::OpenOptions;
 use std::fs::read_to_string;
@@ -257,11 +261,175 @@ fn inner_main() -> Result<(), AppError> {
     let start = std::time::Instant::now();
     let args = Args::parse();
 
+    // Format
+    format(&args)?;
+
+    // Linting
+    lint(&args)?;
+
+    println!("Finished in {:.2?}.", start.elapsed());
+    Ok(())
+}
+
+fn format(args: &Args) -> Result<(), AppError> {
+    // Go through all focus tree files, sort their contents in order:
+    // 1. Focuses within sub-trees are ordered breadth first with parent(s) before child focuses.
+    // 2. Sub-trees are ordered based on the x and y coordinates of their roots.
+    // This produces an ordered list of focuses.
+    let walker = walkdir::WalkDir::new(&args.path);
+    walker.into_iter().par_bridge().for_each(|dir_res| {
+        let dir = dir_res.unwrap();
+        let path = dir.path();
+
+        // Check if national focus
+        if let Some(parent) = path.parent()
+            && parent == args.path.join("common").join("national_focus")
+        {
+            let string = read_to_string(path).ok().unwrap();
+
+            // Collect ordered focus IDs across all focus_trees in the file. The tape
+            // borrow is scoped so `string` is free to use for rewriting afterward.
+            let all_ordered_ids: Vec<String> = {
+                let tape = jomini::TextTape::from_slice(string.as_bytes())
+                    .ok()
+                    .unwrap();
+                let reader = tape.windows1252_reader();
+                let mut ids: Vec<String> = Vec::new();
+
+                for (focus_tree_key, _, focus_tree_value) in reader.fields() {
+                    if focus_tree_key.read_str() != "focus_tree" {
+                        continue;
+                    }
+                    let Ok(tree) = focus_tree_value.read_object() else {
+                        continue;
+                    };
+
+                    let mut nodes = HashMap::new();
+                    let mut edges = Vec::new();
+
+                    for (tree_key, _, tree_value) in tree.fields() {
+                        if tree_key.read_str() != "focus" {
+                            continue;
+                        }
+                        let Ok(focus) = tree_value.read_object() else {
+                            continue;
+                        };
+
+                        let mut focus_id = None;
+                        let mut focus_prerequisites = Vec::new();
+                        for (focus_key, _, focus_value) in focus.fields() {
+                            if focus_key.read_str() == "id"
+                                && let Ok(key_str) = focus_value.read_string()
+                            {
+                                focus_id = Some(key_str);
+                            }
+                            if focus_key.read_str() == "prerequisite"
+                                && let Ok(preq) = focus_value.read_object()
+                            {
+                                for (preq_key, _, preq_value) in preq.fields() {
+                                    if preq_key.read_str() == "focus"
+                                        && let Ok(preq_str) = preq_value.read_string()
+                                    {
+                                        focus_prerequisites.push(preq_str);
+                                    }
+                                }
+                            }
+                        }
+                        let a = focus_id.unwrap();
+                        nodes.insert(a.clone(), focus);
+                        edges.extend(focus_prerequisites.into_iter().map(|b| (b, a.clone())));
+                    }
+
+                    let mut graph = Graph::<String, ()>::new();
+                    let node_map = nodes
+                        .keys()
+                        .map(|n| (n.clone(), graph.add_node(n.clone())))
+                        .collect::<HashMap<_, _>>();
+                    edges.into_iter().for_each(|(a, b)| {
+                        let a_idx = &node_map[&a];
+                        let b_idx = &node_map[&b];
+                        graph.add_edge(*a_idx, *b_idx, ());
+                    });
+
+                    let mut subtrees = graph
+                        .externals(Direction::Incoming)
+                        .map(|x| {
+                            let mut list = Vec::new();
+                            // Since hoi4 focus trees are not trees, paths can converge so to ensure we get
+                            // focuses after their prerequisites we need to do breadth first search
+                            let mut bfs = petgraph::visit::Bfs::new(&graph, x);
+                            while let Some(a) = bfs.next(&graph) {
+                                list.push(graph[a].clone());
+                            }
+                            (graph[x].clone(), list)
+                        })
+                        .collect::<Vec<_>>();
+
+                    subtrees.sort_by(|(a, _), (b, _)| {
+                        let a_node = &nodes[a];
+                        let a_x = a_node
+                            .fields()
+                            .into_iter()
+                            .find_map(|(key, _, value)| {
+                                (key.read_str() == "x")
+                                    .then(|| value.read_scalar().unwrap().to_i64().unwrap())
+                            })
+                            .unwrap_or(0);
+                        let a_y = a_node
+                            .fields()
+                            .into_iter()
+                            .find_map(|(key, _, value)| {
+                                (key.read_str() == "y")
+                                    .then(|| value.read_scalar().unwrap().to_i64().unwrap())
+                            })
+                            .unwrap_or(0);
+
+                        let b_node = &nodes[b];
+                        let b_x = b_node
+                            .fields()
+                            .into_iter()
+                            .find_map(|(key, _, value)| {
+                                (key.read_str() == "x")
+                                    .then(|| value.read_scalar().unwrap().to_i64().unwrap())
+                            })
+                            .unwrap_or(0);
+                        let b_y = b_node
+                            .fields()
+                            .into_iter()
+                            .find_map(|(key, _, value)| {
+                                (key.read_str() == "y")
+                                    .then(|| value.read_scalar().unwrap().to_i64().unwrap())
+                            })
+                            .unwrap_or(0);
+
+                        a_x.cmp(&b_x).then(a_y.cmp(&b_y))
+                    });
+
+                    let ordered_focuses = subtrees.into_iter().flat_map(|(_, b)| b);
+
+                    ids.extend(ordered_focuses);
+                }
+
+                ids
+            };
+
+            if !all_ordered_ids.is_empty() {
+                let new_content = reorder_focus_blocks(&string, &all_ordered_ids);
+                if new_content != string {
+                    std::fs::write(path, new_content.as_bytes()).unwrap();
+                }
+            }
+        }
+    });
+
+    Ok(())
+}
+
+// Handle linting (e.g. like `cargo clippy`).
+fn lint(args: &Args) -> Result<(), AppError> {
     let descriptor = read_to_string(args.path.join("descriptor.mod"))
         .map_err(|_e| AppError::NotModDir(args.path.clone()))?;
     run_steamcmd_version_check(&descriptor);
-
-    println!("Checking path: {}", args.path.display());
 
     let walker = walkdir::WalkDir::new(&args.path);
     let State { args, keys, things } = walker
@@ -349,10 +517,9 @@ fn inner_main() -> Result<(), AppError> {
     }
 
     println!(
-        "\nFound {} missing localisations (out of {}) in {:.2?}.",
+        "\nFound {}/{} missing localisations.",
         fmt_commas(missing),
-        fmt_commas(things.len() as u64),
-        start.elapsed()
+        fmt_commas(things.len() as u64)
     );
 
     if missing > 0 {
@@ -494,9 +661,8 @@ fn read_focuses(path: &Path) -> Option<BTreeMap<String, (std::path::PathBuf, usi
             };
             for (focus_key, _, focus_value) in focus.fields() {
                 if focus_key.read_str() == "id"
-                    && let Ok(scalar) = focus_value.read_scalar()
+                    && let Ok(key_str) = focus_value.read_string()
                 {
-                    let key_str = scalar.to_string();
                     let offset = find_offset(&string, &key_str);
                     focuses.insert(key_str, (path.to_path_buf(), offset));
                 }
@@ -717,4 +883,158 @@ pub fn vdf_to_json(vdf: &Vdf) -> JsonValue {
     let mut root = Map::new();
     root.insert(vdf.key.to_string(), vdf_value_to_json(&vdf.value));
     JsonValue::Object(root)
+}
+
+/// Reorders `focus = { ... }` blocks in `content` so that position `i` in the
+/// file holds the block whose ID is `ordered_ids[i]`. Works from the end of
+/// the file backward so byte offsets stay valid while replacing.
+///
+/// Returns `content` unchanged if the number of focus blocks found does not
+/// match `ordered_ids.len()` (safety bail-out for unexpected file shapes).
+fn reorder_focus_blocks(content: &str, ordered_ids: &[String]) -> String {
+    let bytes: &[u8] = content.as_bytes();
+    let mut blocks: Vec<(usize, usize, String)> = Vec::new(); // (start, end, id)
+
+    let mut i = 0;
+    while i < bytes.len() {
+        // Skip line comments.
+        if bytes[i] == b'#' {
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        // Skip quoted strings.
+        if bytes[i] == b'"' {
+            i += 1;
+            while i < bytes.len() && bytes[i] != b'"' {
+                i += 1;
+            }
+            if i < bytes.len() {
+                i += 1;
+            }
+            continue;
+        }
+        // Match `focus` keyword preceded by whitespace (avoids `focus_tree`, etc.).
+        let preceded_by_ws = i == 0 || bytes[i - 1].is_ascii_whitespace();
+        if preceded_by_ws && bytes[i..].starts_with(b"focus") {
+            let mut j = i + 5;
+            while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                j += 1;
+            }
+            if j < bytes.len() && bytes[j] == b'=' {
+                j += 1;
+                while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                    j += 1;
+                }
+                if j < bytes.len() && bytes[j] == b'{' {
+                    // Start the block at the beginning of the `focus` line
+                    // (to include its indentation), then extend backward over
+                    // any immediately preceding comment lines so they travel
+                    // with the focus they introduce. Blank lines stop the scan
+                    // so they remain as separators between blocks.
+                    let line_start = content[..i].rfind('\n').map_or(0, |p| p + 1);
+                    let mut block_start = line_start;
+                    let mut scan_pos = line_start;
+                    loop {
+                        if scan_pos == 0 {
+                            break;
+                        }
+                        let prev_nl = scan_pos - 1;
+                        let prev_line_start = content[..prev_nl].rfind('\n').map_or(0, |p| p + 1);
+                        if content[prev_line_start..prev_nl].trim().starts_with('#') {
+                            block_start = prev_line_start;
+                            scan_pos = prev_line_start;
+                        } else {
+                            break;
+                        }
+                    }
+                    let mut depth = 0;
+                    let mut m = j;
+                    loop {
+                        if m >= bytes.len() {
+                            break;
+                        }
+                        match bytes[m] {
+                            b'#' => {
+                                while m < bytes.len() && bytes[m] != b'\n' {
+                                    m += 1;
+                                }
+                            }
+                            b'"' => {
+                                m += 1;
+                                while m < bytes.len() && bytes[m] != b'"' {
+                                    m += 1;
+                                }
+                                if m < bytes.len() {
+                                    m += 1;
+                                }
+                            }
+                            b'{' => {
+                                depth += 1;
+                                m += 1;
+                            }
+                            b'}' => {
+                                depth -= 1;
+                                m += 1;
+                                if depth == 0 {
+                                    break;
+                                }
+                            }
+                            _ => {
+                                m += 1;
+                            }
+                        }
+                    }
+                    // Consume the newline that follows the closing brace.
+                    if m < bytes.len() && bytes[m] == b'\n' {
+                        m += 1;
+                    }
+                    if let Some(id) = extract_focus_id(&content[block_start..m]) {
+                        blocks.push((block_start, m, id));
+                    }
+                    i = m;
+                    continue;
+                }
+            }
+        }
+        i += 1;
+    }
+
+    if blocks.len() != ordered_ids.len() {
+        return content.to_owned();
+    }
+
+    let block_map: HashMap<&str, &str> = blocks
+        .iter()
+        .map(|(start, end, id)| (id.as_str(), &content[*start..*end]))
+        .collect();
+
+    let mut result = content.to_owned();
+    for (pos, (start, end, _)) in blocks.iter().enumerate().rev() {
+        if let Some(&new_block) = block_map.get(ordered_ids[pos].as_str()) {
+            result.replace_range(*start..*end, new_block);
+        }
+    }
+
+    result
+}
+
+fn extract_focus_id(block: &str) -> Option<String> {
+    for line in block.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("id") {
+            let rest = rest.trim_start();
+            if let Some(rest) = rest.strip_prefix('=') {
+                let raw = rest.trim();
+                // Strip inline comment (e.g. `id = one # comment`).
+                let raw = raw.split_once('#').map_or(raw, |(v, _)| v.trim());
+                let value = raw.trim_matches('"');
+                if !value.is_empty() && !value.contains(|c: char| c == '{' || c.is_whitespace()) {
+                    return Some(value.to_owned());
+                }
+            }
+        }
+    }
+    None
 }
