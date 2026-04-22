@@ -1,0 +1,57 @@
+focus_tree = {
+    # Fifth focus
+    focus = {
+        id = five
+        x = 5
+    }
+    focus = {
+        id = six
+        x=-1
+        y=1
+        prerequisite = { focus = five }
+    }
+    focus = {
+        id = seven
+        x=1
+        y=1
+        prerequisite = { focus = five }
+    }
+    # A focus that requires 1 of 2 focuses.
+    focus = {
+        id = nine
+        y=2
+        prerequisite = {
+            focus = six
+            focus = seven
+        }
+    }
+
+    # First focus
+    focus = {
+        id = one # First focus id
+    }
+    focus = {
+        id = two
+        x = -1
+        y = 1
+        prerequisite = { focus = one }
+    }
+    focus = {
+        id = three
+        x = 1
+        y = 1
+        prerequisite = { focus = one }
+    }
+    # A focus that requires 2 focuses.
+    focus = {
+        id = four
+        y = 2
+        prerequisite = { focus = two }
+        prerequisite = { focus = three }
+    }
+    focus = {
+        id = eight
+        y = 1
+        prerequisite = { focus = four }
+    }
+}

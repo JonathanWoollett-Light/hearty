@@ -21,3 +21,10 @@ thiserror = "2.0.18"
 semver = "1.0.28"
 keyvalues-parser = "0.2.3"
 serde_json = "1.0.149"
+petgraph = "0.8.3"
+
+[dev-dependencies]
+dasher = "0.3.3"
+base64 = "0.22.1"
+tempfile = "3.27.0"
+copy_dir = "0.1.3"
