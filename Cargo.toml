@@ -4,7 +4,7 @@ version = "0.1.6"
 edition = "2024"
 description = "Check HOI4 mod files for missing localisations"
 license = "MIT"
-repository = "https://github.com/Jonathan/hearty"
+repository = "https://github.com/JonathanWoollett-Light/hearty"
 keywords = ["hoi4", "localisation", "mod"]
 categories = ["command-line-utilities"]
 
