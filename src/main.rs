@@ -31,11 +31,12 @@
     reason = "Mitigates excessive and sometimes conflicting warnings from `clippy::restriction`."
 )]
 
+mod sort;
+
 use clap::Parser;
 use keyvalues_parser::{Value as VdfValue, Vdf};
 use miette::{Diagnostic, NamedSource, SourceSpan};
-use petgraph::Direction;
-use petgraph::Graph;
+use petgraph::graph::DiGraph;
 use rayon::prelude::*;
 use serde_json::{Map, Value as JsonValue};
 use std::collections::BTreeMap;
@@ -316,8 +317,17 @@ fn format_focus_file(path: &Path) {
                 continue;
             };
 
-            let mut nodes = HashMap::new();
-            let mut edges = Vec::new();
+            // Focus IDs in file order, deduplicated. Order must be both
+            // deterministic AND file-order-preserving: petgraph's DFS-based
+            // toposort walks node_indices() in order, and the resulting order
+            // becomes the `rank` that breaks ties in priority_toposort. An
+            // alphabetical order (e.g. from BTreeSet) would assign leaf focuses
+            // like `eight` the highest rank and push them to the end, instead
+            // of keeping them next to their parent in file order.
+            let mut node_ids: Vec<String> = Vec::new();
+            let mut seen_ids: HashSet<String> = HashSet::new();
+            let mut relative_position_edges = Vec::new();
+            let mut prerequisite_edges = Vec::new();
 
             for (tree_key, _, tree_value) in tree.fields() {
                 if tree_key.read_str() != "focus" {
@@ -327,15 +337,15 @@ fn format_focus_file(path: &Path) {
                     continue;
                 };
 
-                let mut focus_id = None;
+                let mut focus_id: Option<String> = None;
                 let mut focus_prerequisites = Vec::new();
+                let mut focus_relative_positions = None;
                 for (focus_key, _, focus_value) in focus.fields() {
                     if focus_key.read_str() == "id"
                         && let Ok(key_str) = focus_value.read_string()
                     {
                         focus_id = Some(key_str);
-                    }
-                    if focus_key.read_str() == "prerequisite"
+                    } else if focus_key.read_str() == "prerequisite"
                         && let Ok(preq) = focus_value.read_object()
                     {
                         for (preq_key, _, preq_value) in preq.fields() {
@@ -345,63 +355,56 @@ fn format_focus_file(path: &Path) {
                                 focus_prerequisites.push(preq_str);
                             }
                         }
+                    } else if focus_key.read_str() == "relative_position_id"
+                        && let Ok(relative) = focus_value.read_string()
+                    {
+                        focus_relative_positions = Some(relative);
                     }
                 }
                 let Some(a) = focus_id else {
                     continue;
                 };
-                nodes.insert(a.clone(), focus);
-                edges.extend(focus_prerequisites.into_iter().map(|b| (b, a.clone())));
+                if let Some(relative_position) = focus_relative_positions {
+                    relative_position_edges.push((relative_position, a.clone()));
+                }
+                if seen_ids.insert(a.clone()) {
+                    node_ids.push(a.clone());
+                }
+                prerequisite_edges.extend(focus_prerequisites.into_iter().map(|b| (b, a.clone())));
             }
 
-            let mut graph = Graph::<String, ()>::new();
-            let node_map: HashMap<_, _> = nodes
-                .keys()
-                .map(|n| (n.clone(), graph.add_node(n.clone())))
+            let mut relative_position_graph = DiGraph::<String, ()>::new();
+            let mut prerequisite_graph = DiGraph::<String, ()>::new();
+            let node_map: HashMap<String, _> = node_ids
+                .iter()
+                .map(|n| {
+                    (
+                        n.clone(),
+                        (
+                            relative_position_graph.add_node(n.clone()),
+                            prerequisite_graph.add_node(n.clone()),
+                        ),
+                    )
+                })
                 .collect();
-            for (a, b) in edges {
-                if let Some(&a_idx) = node_map.get(&a)
-                    && let Some(&b_idx) = node_map.get(&b)
-                {
-                    graph.add_edge(a_idx, b_idx, ());
+
+            // `prerequisite`s should contribute to the order, but should always be behind `relative_positions`
+            for (a, b) in relative_position_edges {
+                if let (Some(na), Some(nb)) = (node_map.get(&a), node_map.get(&b)) {
+                    relative_position_graph.add_edge(na.0, nb.0, ());
                 }
             }
+            for (a, b) in prerequisite_edges {
+                if let (Some(na), Some(nb)) = (node_map.get(&a), node_map.get(&b)) {
+                    prerequisite_graph.add_edge(na.1, nb.1, ());
+                }
+            }
+            let Ok(sorted) = sort::priority_toposort(&relative_position_graph, &prerequisite_graph)
+            else {
+                continue;
+            };
 
-            let mut subtrees = graph
-                .externals(Direction::Incoming)
-                .map(|x| {
-                    let mut list = Vec::new();
-                    // Since hoi4 focus trees are not trees, paths can converge so to ensure we get
-                    // focuses after their prerequisites we need to do breadth first search
-                    let mut bfs = petgraph::visit::Bfs::new(&graph, x);
-                    while let Some(a) = bfs.next(&graph) {
-                        list.push(graph[a].clone());
-                    }
-                    (graph[x].clone(), list)
-                })
-                .collect::<Vec<_>>();
-
-            subtrees.sort_by(|(a, _), (b, _)| {
-                let read_coord = |id: &String, axis: &str| -> i64 {
-                    nodes
-                        .get(id)
-                        .and_then(|n| {
-                            n.fields().into_iter().find_map(|(key, _, value)| {
-                                (key.read_str() == axis)
-                                    .then(|| value.read_scalar().ok()?.to_i64().ok())
-                                    .flatten()
-                            })
-                        })
-                        .unwrap_or(0)
-                };
-                read_coord(a, "x")
-                    .cmp(&read_coord(b, "x"))
-                    .then(read_coord(a, "y").cmp(&read_coord(b, "y")))
-            });
-
-            let ordered_focuses = subtrees.into_iter().flat_map(|(_, b)| b);
-            let mut seen = HashSet::new();
-            ids.extend(ordered_focuses.filter(|id| seen.insert(id.clone())));
+            ids.extend(sorted);
         }
 
         ids

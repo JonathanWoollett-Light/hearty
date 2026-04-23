@@ -3,18 +3,21 @@ focus_tree = {
     focus = {
         id = five
         x = 5
+        relative_position_id = one
     }
     focus = {
         id = six
         x=-1
         y=1
         prerequisite = { focus = five }
+        relative_position_id = five
     }
     focus = {
         id = seven
         x=1
         y=1
         prerequisite = { focus = five }
+        relative_position_id = five
     }
     # A focus that requires 1 of 2 focuses.
     focus = {
@@ -24,6 +27,7 @@ focus_tree = {
             focus = six
             focus = seven
         }
+        relative_position_id = five
     }
 
     # First focus
@@ -35,12 +39,14 @@ focus_tree = {
         x = -1
         y = 1
         prerequisite = { focus = one }
+        relative_position_id = one
     }
     focus = {
         id = three
         x = 1
         y = 1
         prerequisite = { focus = one }
+        relative_position_id = one
     }
     # A focus that requires 2 focuses.
     focus = {
@@ -48,10 +54,12 @@ focus_tree = {
         y = 2
         prerequisite = { focus = two }
         prerequisite = { focus = three }
+        relative_position_id = one
     }
     focus = {
         id = eight
         y = 1
         prerequisite = { focus = four }
+        relative_position_id = four
     }
 }
