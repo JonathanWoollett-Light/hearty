@@ -27,6 +27,7 @@
     clippy::as_conversions,                  // usize→u64 cast is safe on all target platforms
     clippy::pattern_type_mismatch,           // match ergonomics are idiomatic Rust
     clippy::doc_markdown,                    // displaydoc format strings use {field} syntax, not code
+    clippy::too_many_lines,                  // line counts are a noisy proxy for complexity
     reason = "Mitigates excessive and sometimes conflicting warnings from `clippy::restriction`."
 )]
 
@@ -53,6 +54,8 @@ use walkdir::DirEntry;
 const MAX_MISSING: u64 = 10;
 
 const DEFAULT_CACHE_DIR: &str = ".hearty-cache";
+/// Maximum bytes to read when downloading steamcmd (32 MiB).
+const STEAMCMD_DOWNLOAD_MAX: u64 = 32 * 1_024 * 1_024;
 
 /// HOI4 event block types whose fields require localisation.
 const EVENT_TYPES: &[&str] = &[
@@ -263,7 +266,7 @@ fn inner_main() -> Result<(), AppError> {
     let args = Args::parse();
 
     // Format
-    format(&args)?;
+    format(&args);
 
     // Linting
     lint(&args)?;
@@ -272,158 +275,144 @@ fn inner_main() -> Result<(), AppError> {
     Ok(())
 }
 
-fn format(args: &Args) -> Result<(), AppError> {
+fn format(args: &Args) {
     // Go through all focus tree files, sort their contents in order:
     // 1. Focuses within sub-trees are ordered breadth first with parent(s) before child focuses.
     // 2. Sub-trees are ordered based on the x and y coordinates of their roots.
-    // This produces an ordered list of focuses.
-    let walker = walkdir::WalkDir::new(&args.path);
-    walker.into_iter().par_bridge().for_each(|dir_res| {
-        let dir = dir_res.unwrap();
-        let path = dir.path();
+    let national_focus_dir = args.path.join("common").join("national_focus");
+    walkdir::WalkDir::new(&args.path)
+        .into_iter()
+        .par_bridge()
+        .for_each(|dir_res| {
+            let Ok(dir) = dir_res else {
+                return;
+            };
+            let path = dir.path();
+            if path.parent() == Some(national_focus_dir.as_path()) {
+                format_focus_file(path);
+            }
+        });
+}
 
-        // Check if national focus
-        if let Some(parent) = path.parent()
-            && parent == args.path.join("common").join("national_focus")
-        {
-            let string = read_to_string(path).ok().unwrap();
+fn format_focus_file(path: &Path) {
+    let Ok(string) = read_to_string(path) else {
+        return;
+    };
 
-            // Collect ordered focus IDs across all focus_trees in the file. The tape
-            // borrow is scoped so `string` is free to use for rewriting afterward.
-            let all_ordered_ids: Vec<String> = {
-                let tape = jomini::TextTape::from_slice(string.as_bytes())
-                    .ok()
-                    .unwrap();
-                let reader = tape.windows1252_reader();
-                let mut ids: Vec<String> = Vec::new();
+    // Collect ordered focus IDs across all focus_trees in the file. The tape
+    // borrow is scoped so `string` is free to use for rewriting afterward.
+    let all_ordered_ids: Vec<String> = {
+        let Ok(tape) = jomini::TextTape::from_slice(string.as_bytes()) else {
+            return;
+        };
+        let reader = tape.windows1252_reader();
+        let mut ids: Vec<String> = Vec::new();
 
-                for (focus_tree_key, _, focus_tree_value) in reader.fields() {
-                    if focus_tree_key.read_str() != "focus_tree" {
-                        continue;
-                    }
-                    let Ok(tree) = focus_tree_value.read_object() else {
-                        continue;
-                    };
-
-                    let mut nodes = HashMap::new();
-                    let mut edges = Vec::new();
-
-                    for (tree_key, _, tree_value) in tree.fields() {
-                        if tree_key.read_str() != "focus" {
-                            continue;
-                        }
-                        let Ok(focus) = tree_value.read_object() else {
-                            continue;
-                        };
-
-                        let mut focus_id = None;
-                        let mut focus_prerequisites = Vec::new();
-                        for (focus_key, _, focus_value) in focus.fields() {
-                            if focus_key.read_str() == "id"
-                                && let Ok(key_str) = focus_value.read_string()
-                            {
-                                focus_id = Some(key_str);
-                            }
-                            if focus_key.read_str() == "prerequisite"
-                                && let Ok(preq) = focus_value.read_object()
-                            {
-                                for (preq_key, _, preq_value) in preq.fields() {
-                                    if preq_key.read_str() == "focus"
-                                        && let Ok(preq_str) = preq_value.read_string()
-                                    {
-                                        focus_prerequisites.push(preq_str);
-                                    }
-                                }
-                            }
-                        }
-                        let a = focus_id.unwrap();
-                        nodes.insert(a.clone(), focus);
-                        edges.extend(focus_prerequisites.into_iter().map(|b| (b, a.clone())));
-                    }
-
-                    let mut graph = Graph::<String, ()>::new();
-                    let node_map = nodes
-                        .keys()
-                        .map(|n| (n.clone(), graph.add_node(n.clone())))
-                        .collect::<HashMap<_, _>>();
-                    edges.into_iter().for_each(|(a, b)| {
-                        let a_idx = &node_map[&a];
-                        let b_idx = &node_map[&b];
-                        graph.add_edge(*a_idx, *b_idx, ());
-                    });
-
-                    let mut subtrees = graph
-                        .externals(Direction::Incoming)
-                        .map(|x| {
-                            let mut list = Vec::new();
-                            // Since hoi4 focus trees are not trees, paths can converge so to ensure we get
-                            // focuses after their prerequisites we need to do breadth first search
-                            let mut bfs = petgraph::visit::Bfs::new(&graph, x);
-                            while let Some(a) = bfs.next(&graph) {
-                                list.push(graph[a].clone());
-                            }
-                            (graph[x].clone(), list)
-                        })
-                        .collect::<Vec<_>>();
-
-                    subtrees.sort_by(|(a, _), (b, _)| {
-                        let a_node = &nodes[a];
-                        let a_x = a_node
-                            .fields()
-                            .into_iter()
-                            .find_map(|(key, _, value)| {
-                                (key.read_str() == "x")
-                                    .then(|| value.read_scalar().unwrap().to_i64().unwrap())
-                            })
-                            .unwrap_or(0);
-                        let a_y = a_node
-                            .fields()
-                            .into_iter()
-                            .find_map(|(key, _, value)| {
-                                (key.read_str() == "y")
-                                    .then(|| value.read_scalar().unwrap().to_i64().unwrap())
-                            })
-                            .unwrap_or(0);
-
-                        let b_node = &nodes[b];
-                        let b_x = b_node
-                            .fields()
-                            .into_iter()
-                            .find_map(|(key, _, value)| {
-                                (key.read_str() == "x")
-                                    .then(|| value.read_scalar().unwrap().to_i64().unwrap())
-                            })
-                            .unwrap_or(0);
-                        let b_y = b_node
-                            .fields()
-                            .into_iter()
-                            .find_map(|(key, _, value)| {
-                                (key.read_str() == "y")
-                                    .then(|| value.read_scalar().unwrap().to_i64().unwrap())
-                            })
-                            .unwrap_or(0);
-
-                        a_x.cmp(&b_x).then(a_y.cmp(&b_y))
-                    });
-
-                    let ordered_focuses = subtrees.into_iter().flat_map(|(_, b)| b);
-
-                    ids.extend(ordered_focuses);
-                }
-
-                ids
+        for (focus_tree_key, _, focus_tree_value) in reader.fields() {
+            if focus_tree_key.read_str() != "focus_tree" {
+                continue;
+            }
+            let Ok(tree) = focus_tree_value.read_object() else {
+                continue;
             };
 
-            if !all_ordered_ids.is_empty() {
-                let new_content = reorder_focus_blocks(&string, &all_ordered_ids);
-                if new_content != string {
-                    std::fs::write(path, new_content.as_bytes()).unwrap();
+            let mut nodes = HashMap::new();
+            let mut edges = Vec::new();
+
+            for (tree_key, _, tree_value) in tree.fields() {
+                if tree_key.read_str() != "focus" {
+                    continue;
+                }
+                let Ok(focus) = tree_value.read_object() else {
+                    continue;
+                };
+
+                let mut focus_id = None;
+                let mut focus_prerequisites = Vec::new();
+                for (focus_key, _, focus_value) in focus.fields() {
+                    if focus_key.read_str() == "id"
+                        && let Ok(key_str) = focus_value.read_string()
+                    {
+                        focus_id = Some(key_str);
+                    }
+                    if focus_key.read_str() == "prerequisite"
+                        && let Ok(preq) = focus_value.read_object()
+                    {
+                        for (preq_key, _, preq_value) in preq.fields() {
+                            if preq_key.read_str() == "focus"
+                                && let Ok(preq_str) = preq_value.read_string()
+                            {
+                                focus_prerequisites.push(preq_str);
+                            }
+                        }
+                    }
+                }
+                let Some(a) = focus_id else {
+                    continue;
+                };
+                nodes.insert(a.clone(), focus);
+                edges.extend(focus_prerequisites.into_iter().map(|b| (b, a.clone())));
+            }
+
+            let mut graph = Graph::<String, ()>::new();
+            let node_map: HashMap<_, _> = nodes
+                .keys()
+                .map(|n| (n.clone(), graph.add_node(n.clone())))
+                .collect();
+            for (a, b) in edges {
+                if let Some(&a_idx) = node_map.get(&a)
+                    && let Some(&b_idx) = node_map.get(&b)
+                {
+                    graph.add_edge(a_idx, b_idx, ());
                 }
             }
-        }
-    });
 
-    Ok(())
+            let mut subtrees = graph
+                .externals(Direction::Incoming)
+                .map(|x| {
+                    let mut list = Vec::new();
+                    // Since hoi4 focus trees are not trees, paths can converge so to ensure we get
+                    // focuses after their prerequisites we need to do breadth first search
+                    let mut bfs = petgraph::visit::Bfs::new(&graph, x);
+                    while let Some(a) = bfs.next(&graph) {
+                        list.push(graph[a].clone());
+                    }
+                    (graph[x].clone(), list)
+                })
+                .collect::<Vec<_>>();
+
+            subtrees.sort_by(|(a, _), (b, _)| {
+                let read_coord = |id: &String, axis: &str| -> i64 {
+                    nodes
+                        .get(id)
+                        .and_then(|n| {
+                            n.fields().into_iter().find_map(|(key, _, value)| {
+                                (key.read_str() == axis)
+                                    .then(|| value.read_scalar().ok()?.to_i64().ok())
+                                    .flatten()
+                            })
+                        })
+                        .unwrap_or(0)
+                };
+                read_coord(a, "x")
+                    .cmp(&read_coord(b, "x"))
+                    .then(read_coord(a, "y").cmp(&read_coord(b, "y")))
+            });
+
+            let ordered_focuses = subtrees.into_iter().flat_map(|(_, b)| b);
+            let mut seen = HashSet::new();
+            ids.extend(ordered_focuses.filter(|id| seen.insert(id.clone())));
+        }
+
+        ids
+    };
+
+    if !all_ordered_ids.is_empty() {
+        let new_content = reorder_focus_blocks(&string, &all_ordered_ids);
+        if new_content != string {
+            drop(std::fs::write(path, new_content.as_bytes()));
+        }
+    }
 }
 
 // Handle linting (e.g. like `cargo clippy`).
@@ -758,13 +747,12 @@ fn write_cache(data: &serde_json::Value) {
     std::fs::write(path, serialized).unwrap_or_default();
 }
 
-/// Maximum bytes to read when downloading steamcmd (32 MiB).
-const STEAMCMD_DOWNLOAD_MAX: u64 = 32 * 1_024 * 1_024;
-
 /// Path where a downloaded steamcmd binary is cached alongside the version cache.
 fn steamcmd_cache_path() -> std::path::PathBuf {
-    let dir = cache_path()
-        .parent().map_or_else(|| std::path::PathBuf::from(DEFAULT_CACHE_DIR), std::path::Path::to_path_buf);
+    let dir = cache_path().parent().map_or_else(
+        || std::path::PathBuf::from(DEFAULT_CACHE_DIR),
+        std::path::Path::to_path_buf,
+    );
     #[cfg(windows)]
     return dir.join("steamcmd.exe");
     #[cfg(not(windows))]
@@ -817,7 +805,7 @@ fn download_steamcmd() -> Option<std::path::PathBuf> {
         tar::Archive::new(gz).unpack(dir).ok()?;
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
+            use std::os::unix::fs::PermissionsExt as _;
             std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755)).ok()?;
         }
     }
@@ -979,9 +967,51 @@ pub fn vdf_to_json(vdf: &Vdf) -> JsonValue {
 /// Returns `content` unchanged if the number of focus blocks found does not
 /// match `ordered_ids.len()` (safety bail-out for unexpected file shapes).
 fn reorder_focus_blocks(content: &str, ordered_ids: &[String]) -> String {
-    let bytes: &[u8] = content.as_bytes();
-    let mut blocks: Vec<(usize, usize, String)> = Vec::new(); // (start, end, id)
+    let blocks = find_focus_blocks(content);
 
+    if blocks.len() != ordered_ids.len() {
+        return content.to_owned();
+    }
+
+    // All indices in `blocks` came from scanning `content` byte-by-byte, so
+    // every `start..end` range is guaranteed to land on a char boundary.
+    #[expect(
+        clippy::string_slice,
+        reason = "indices from find_focus_blocks are guaranteed ASCII-boundary positions"
+    )]
+    let block_map: HashMap<&str, &str> = blocks
+        .iter()
+        .map(|(start, end, id)| (id.as_str(), &content[*start..*end]))
+        .collect();
+
+    let mut result = content.to_owned();
+    for (pos, (start, end, _)) in blocks.iter().enumerate().rev() {
+        if let Some(target_id) = ordered_ids.get(pos)
+            && let Some(&new_block) = block_map.get(target_id.as_str())
+        {
+            result.replace_range(*start..*end, new_block);
+        }
+    }
+
+    result
+}
+
+/// Scans `content` for `focus = { ... }` blocks, returning `(start, end, id)`
+/// tuples where the range includes any immediately preceding comment lines.
+///
+/// All byte indices produced here land on ASCII character boundaries (the only
+/// meaningful chars are single-byte tokens), so callers may slice `content`
+/// with them safely.
+#[expect(
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    reason = "all byte accesses are guarded by i < bytes.len() checks; \
+              string slice indices are derived from ASCII token scanning so they \
+              are guaranteed to fall on char boundaries"
+)]
+fn find_focus_blocks(content: &str) -> Vec<(usize, usize, String)> {
+    let bytes = content.as_bytes();
+    let mut blocks: Vec<(usize, usize, String)> = Vec::new();
     let mut i = 0;
     while i < bytes.len() {
         // Skip line comments.
@@ -1036,7 +1066,8 @@ fn reorder_focus_blocks(content: &str, ordered_ids: &[String]) -> String {
                             break;
                         }
                     }
-                    let mut depth = 0;
+                    // Brace-match to find the closing `}`.
+                    let mut depth: u32 = 0;
                     let mut m = j;
                     loop {
                         if m >= bytes.len() {
@@ -1087,24 +1118,7 @@ fn reorder_focus_blocks(content: &str, ordered_ids: &[String]) -> String {
         }
         i += 1;
     }
-
-    if blocks.len() != ordered_ids.len() {
-        return content.to_owned();
-    }
-
-    let block_map: HashMap<&str, &str> = blocks
-        .iter()
-        .map(|(start, end, id)| (id.as_str(), &content[*start..*end]))
-        .collect();
-
-    let mut result = content.to_owned();
-    for (pos, (start, end, _)) in blocks.iter().enumerate().rev() {
-        if let Some(&new_block) = block_map.get(ordered_ids[pos].as_str()) {
-            result.replace_range(*start..*end, new_block);
-        }
-    }
-
-    result
+    blocks
 }
 
 fn extract_focus_id(block: &str) -> Option<String> {
