@@ -35,7 +35,6 @@ use keyvalues_parser::{Value as VdfValue, Vdf};
 use miette::{Diagnostic, NamedSource, SourceSpan};
 use petgraph::Direction;
 use petgraph::Graph;
-use petgraph::visit::Walker as _;
 use rayon::prelude::*;
 use serde_json::{Map, Value as JsonValue};
 use std::collections::BTreeMap;
@@ -44,7 +43,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::OpenOptions;
 use std::fs::read_to_string;
-use std::io::{BufRead as _, BufReader};
+use std::io::{BufRead as _, BufReader, Read as _};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -52,6 +51,8 @@ use walkdir::DirEntry;
 
 /// Max number of diagnostics to print before truncating with ⋮.
 const MAX_MISSING: u64 = 10;
+
+const DEFAULT_CACHE_DIR: &str = ".hearty-cache";
 
 /// HOI4 event block types whose fields require localisation.
 const EVENT_TYPES: &[&str] = &[
@@ -714,7 +715,7 @@ fn read_technologies(path: &Path) -> Option<BTreeMap<String, (std::path::PathBuf
 fn cache_path() -> std::path::PathBuf {
     std::env::var_os("HEARTY_CACHE_DIR")
         .map_or_else(
-            || std::path::PathBuf::from(".hearty-cache"),
+            || std::path::PathBuf::from(DEFAULT_CACHE_DIR),
             std::path::PathBuf::from,
         )
         .join(HOI4_CACHE_FILE)
@@ -757,9 +758,95 @@ fn write_cache(data: &serde_json::Value) {
     std::fs::write(path, serialized).unwrap_or_default();
 }
 
+/// Maximum bytes to read when downloading steamcmd (32 MiB).
+const STEAMCMD_DOWNLOAD_MAX: u64 = 32 * 1_024 * 1_024;
+
+/// Path where a downloaded steamcmd binary is cached alongside the version cache.
+fn steamcmd_cache_path() -> std::path::PathBuf {
+    let dir = cache_path()
+        .parent().map_or_else(|| std::path::PathBuf::from(DEFAULT_CACHE_DIR), std::path::Path::to_path_buf);
+    #[cfg(windows)]
+    return dir.join("steamcmd.exe");
+    #[cfg(not(windows))]
+    return dir.join("steamcmd.sh");
+}
+
+/// Returns `true` if a `steamcmd` binary is reachable via `PATH`.
+fn steamcmd_in_path() -> bool {
+    #[cfg(windows)]
+    let name = "steamcmd.exe";
+    #[cfg(not(windows))]
+    let name = "steamcmd";
+    std::env::var_os("PATH")
+        .is_some_and(|p| std::env::split_paths(&p).any(|d| d.join(name).exists()))
+}
+
+/// Downloads steamcmd from the Steam CDN into the cache directory and returns
+/// its path. Returns `None` if the download or extraction fails.
+fn download_steamcmd() -> Option<std::path::PathBuf> {
+    let dest = steamcmd_cache_path();
+    let dir = dest.parent()?;
+    std::fs::create_dir_all(dir).ok()?;
+
+    #[cfg(windows)]
+    let url = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip";
+    #[cfg(target_os = "macos")]
+    let url = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_osx.tar.gz";
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    let url = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz";
+
+    println!("steamcmd not found; downloading to {} ...", dir.display());
+    let mut bytes = Vec::new();
+    ureq::get(url)
+        .call()
+        .ok()?
+        .into_reader()
+        .take(STEAMCMD_DOWNLOAD_MAX)
+        .read_to_end(&mut bytes)
+        .ok()?;
+
+    #[cfg(windows)]
+    zip::ZipArchive::new(std::io::Cursor::new(bytes))
+        .ok()?
+        .extract(dir)
+        .ok()?;
+
+    #[cfg(not(windows))]
+    {
+        let gz = flate2::read::GzDecoder::new(std::io::Cursor::new(bytes));
+        tar::Archive::new(gz).unpack(dir).ok()?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755)).ok()?;
+        }
+    }
+
+    dest.exists().then_some(dest)
+}
+
+/// Returns the path to a usable steamcmd binary: system PATH first, then the
+/// cache directory, downloading if neither is present.
+fn resolve_steamcmd() -> Option<std::path::PathBuf> {
+    if steamcmd_in_path() {
+        #[cfg(windows)]
+        return Some(std::path::PathBuf::from("steamcmd.exe"));
+        #[cfg(not(windows))]
+        return Some(std::path::PathBuf::from("steamcmd"));
+    }
+    let cached = steamcmd_cache_path();
+    if cached.exists() {
+        return Some(cached);
+    }
+    download_steamcmd()
+}
+
 fn run_steamcmd_version_check(descriptor: &str) {
+    let Some(steamcmd) = resolve_steamcmd() else {
+        return;
+    };
     let hoi4_data_opt = read_cache().or_else(|| {
-        let data = std::process::Command::new("steamcmd")
+        let data = std::process::Command::new(&steamcmd)
             .args(["+login", "anonymous", "+app_info_print", HOI4_ID, "+quit"])
             .output()
             .ok()
