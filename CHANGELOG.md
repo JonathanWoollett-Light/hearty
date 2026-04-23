@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6](https://github.com/JonathanWoollett-Light/hearty/compare/v0.1.5...v0.1.6) - 2026-04-23
+
+### Added
+
+- auto-download steamcmd
+- formatting focus trees
+- version checking
+
+### Fixed
+
+- making hash test work on unix
+- fixing clippy
+
 ## [0.1.5](https://github.com/JonathanWoollett-Light/hearty/compare/v0.1.4...v0.1.5) - 2026-04-11
 
 ### Fixed
