@@ -1,6 +1,10 @@
 use base64::prelude::*;
 
+#[cfg(windows)]
 const HASH: &str = "KWOmhI5EBHFkWKS2hdDvAL6nMlg514witWoRklBWkcM=";
+#[cfg(not(windows))]
+const HASH: &str = "MziVnUf8RlQgj28JXAWZqR7F7uSBs5cOtEVHh2mALtI=";
+
 const BINARY: &str = env!("CARGO_BIN_EXE_hearty");
 
 #[test]
@@ -18,11 +22,11 @@ fn test_mod() {
 
     let output = std::process::Command::new(BINARY)
         .args([to.to_str().unwrap()])
-        .output()
+        .status()
         .unwrap();
     println!("executed");
 
-    assert!(!output.status.success()); // Assert that the tool communicated a failure.
+    assert!(!output.success()); // Assert that the tool communicated a failure.
 
     // Check that the result from formatting or fixing matches a specific target.
     let hash = dasher::hash_directory(to.clone()).unwrap();
