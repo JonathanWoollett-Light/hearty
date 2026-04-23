@@ -1,9 +1,9 @@
 use base64::prelude::*;
 
 #[cfg(windows)]
-const HASH: &str = "KWOmhI5EBHFkWKS2hdDvAL6nMlg514witWoRklBWkcM=";
+const HASH: &str = "ec8eGvVgKclmyILc1MdjJB8MiLq8nkf318atWR28rIU=";
 #[cfg(not(windows))]
-const HASH: &str = "MziVnUf8RlQgj28JXAWZqR7F7uSBs5cOtEVHh2mALtI=";
+const HASH: &str = "H817Ltn1rkS8ql9d2ZJF1f0xeBpF3HTDtq+aKdjSCXU=";
 
 const BINARY: &str = env!("CARGO_BIN_EXE_hearty");
 
