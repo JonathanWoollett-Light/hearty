@@ -61,3 +61,13 @@ Options:
 ### Example
 
 ![Lint warnings](https://raw.githubusercontent.com/JonathanWoollett-Light/hearty/refs/heads/master/image.png)
+
+### Todo
+
+In no particular order.
+
+- Extend focus sorting functionality to events (events should be ordered based on event chains, then alphabetically).
+- Add more basic formatting e.g. `prerequisite = { focus = my_focus }` should be 1 line, and should have this exact spacing.
+- Check events can be fired (sometimes old events end up existing in code but never being used, just being clutter).
+- Check focuses, events, etc. have gfx.
+- Check localisation spelling and grammar.
