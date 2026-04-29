@@ -22,11 +22,11 @@ fn test_mod() {
 
     let output = std::process::Command::new(BINARY)
         .args([to.to_str().unwrap()])
-        .status()
+        .output()
         .unwrap();
     println!("executed");
 
-    assert!(!output.success()); // Assert that the tool communicated a failure.
+    assert!(!output.status.success()); // Assert that the tool communicated a failure.
 
     // Check that the result from formatting or fixing matches a specific target.
     let hash = dasher::hash_directory(to.clone()).unwrap();
