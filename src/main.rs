@@ -791,8 +791,10 @@ fn download_steamcmd() -> Option<std::path::PathBuf> {
     ureq::get(url)
         .call()
         .ok()?
-        .into_reader()
-        .take(STEAMCMD_DOWNLOAD_MAX)
+        .into_body()
+        .into_with_config()
+        .limit(STEAMCMD_DOWNLOAD_MAX)
+        .reader()
         .read_to_end(&mut bytes)
         .ok()?;
 
