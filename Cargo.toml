@@ -25,7 +25,7 @@ petgraph = "0.8.3"
 ureq = "3.3.0"
 zip = { version = "8", default-features = false, features = ["deflate"] }
 flate2 = "1"
-tar = "0.4"
+tar = "0.4.45"
 
 [dev-dependencies]
 dasher = "0.3.3"
