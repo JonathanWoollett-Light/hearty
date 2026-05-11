@@ -4,7 +4,7 @@
 [![Deps.rs Crate Dependencies (latest)](https://img.shields.io/deps-rs/hearty/latest)](https://crates.io/crates/hearty/dependencies)
 [![Crates.io Size](https://img.shields.io/crates/size/hearty)](https://crates.io/crates/hearty)
 
-Lints for hoi4 mods.
+Lints and formatting for Hearts of Iron 4 mods.
 
 Most mods are very messy, this is a tool to help with a little cleaning.
 
@@ -12,17 +12,25 @@ The plan is to add more lints over time.
 
 ### Installation
 
-**Linux**
+#### Linux 
+
 ```bash
 curl -L https://github.com/JonathanWoollett-Light/hearty/releases/latest/download/hearty-x86_64-linux.tar.gz | tar xz
 ./hearty /path/to/mod
 ```
 
-**Windows** (PowerShell)
+#### Windows (PowerShell)
 ```powershell
 Invoke-WebRequest https://github.com/JonathanWoollett-Light/hearty/releases/latest/download/hearty-x86_64-windows.zip -OutFile hearty.zip
 Expand-Archive hearty.zip -DestinationPath .
 .\hearty.exe "C:\path\to\mod"
+```
+
+#### Source
+
+```bash
+cargo install hearty
+hearty /path/to/mod
 ```
 
 ### GitHub Action
@@ -40,8 +48,8 @@ Can be used in a GitHub action with
     path: .hearty-cache
     key: hoi4-version-cache
 
-- name: Run hearty lint
-    run: hearty
+- name: Check lints and formatting
+    run: hearty --lint --check
 ```
 
 ### Usage
