@@ -167,11 +167,11 @@ struct Args {
     #[arg(long, conflicts_with = "lang")]
     all: bool,
 
-    /// Verify focus-block ordering without modifying files; exits non-zero on drift.
+    /// Verify formatting without modifying files; exits non-zero on drift.
     #[arg(long)]
     check: bool,
 
-    /// Reorder focus blocks in national_focus files in place.
+    /// Apply formatting across all supported file types.
     #[arg(long)]
     format: bool,
 
@@ -180,7 +180,7 @@ struct Args {
     #[arg(long, value_enum, conflicts_with = "all")]
     lang: Vec<Language>,
 
-    /// Run localisation/version checks. Enabled by default when no action flag is given.
+    /// Run linting checks. Enabled by default when no action flag is given.
     #[arg(long)]
     lint: bool,
 
@@ -281,6 +281,47 @@ enum FormatMode {
     Write,
 }
 
+/// Lexicographically-ordered piece of a natural-sort key. Variant order
+/// (`Number < Text`) is load-bearing: ASCII digits sort before letters, and
+/// the derived `Ord` compares variants by declaration position.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum NaturalPart {
+    Number(u64),
+    Text(String),
+}
+
+/// Splits a string into a key that orders `germany.2` before `germany.10`.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "every bytes[i] / bytes[start..i] access is guarded by an explicit i < bytes.len() check"
+)]
+fn natural_key(s: &str) -> Vec<NaturalPart> {
+    let bytes = s.as_bytes();
+    let mut parts: Vec<NaturalPart> = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i].is_ascii_digit() {
+            let mut num: u64 = 0;
+            while i < bytes.len() && bytes[i].is_ascii_digit() {
+                num = num
+                    .saturating_mul(10)
+                    .saturating_add(u64::from(bytes[i] - b'0'));
+                i += 1;
+            }
+            parts.push(NaturalPart::Number(num));
+        } else {
+            let start = i;
+            while i < bytes.len() && !bytes[i].is_ascii_digit() {
+                i += 1;
+            }
+            parts.push(NaturalPart::Text(
+                String::from_utf8_lossy(&bytes[start..i]).into_owned(),
+            ));
+        }
+    }
+    parts
+}
+
 fn fmt_commas(n: u64) -> String {
     let digits = n.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
@@ -325,10 +366,13 @@ fn inner_main() -> Result<(), AppError> {
 }
 
 fn format(args: &Args, mode: FormatMode) -> bool {
-    // Go through all focus tree files, sort their contents in order:
-    // 1. Focuses within sub-trees are ordered breadth first with parent(s) before child focuses.
-    // 2. Sub-trees are ordered based on the x and y coordinates of their roots.
+    // 1. Focus files: sort focuses within each tree breadth-first; sort
+    //    sub-trees by file order of their roots.
+    // 2. Event files: sort top-level events so weakly-connected subtrees
+    //    stay grouped, with subtree order determined by the natural-
+    //    alphabetical order of each subtree's root event id.
     let national_focus_dir = args.path.join("common").join("national_focus");
+    let events_dir = args.path.join("events");
     let drift = std::sync::atomic::AtomicBool::new(false);
     walkdir::WalkDir::new(&args.path)
         .into_iter()
@@ -338,8 +382,15 @@ fn format(args: &Args, mode: FormatMode) -> bool {
                 return;
             };
             let path = dir.path();
-            if path.parent() == Some(national_focus_dir.as_path()) && format_focus_file(path, mode)
-            {
+            let parent = path.parent();
+            let changed = if parent == Some(national_focus_dir.as_path()) {
+                format_focus_file(path, mode)
+            } else if parent == Some(events_dir.as_path()) {
+                format_event_file(path, mode)
+            } else {
+                false
+            };
+            if changed {
                 drift.store(true, std::sync::atomic::Ordering::Relaxed);
             }
         });
@@ -472,6 +523,133 @@ fn format_focus_file(path: &Path, mode: FormatMode) -> bool {
         drop(std::fs::write(path, new_content.as_bytes()));
     }
     true
+}
+
+fn format_event_file(path: &Path, mode: FormatMode) -> bool {
+    let Ok(string) = read_to_string(path) else {
+        return false;
+    };
+
+    // (event_id, ids of events this one triggers). The tape borrow is
+    // scoped so `string` is free for rewriting afterward.
+    let events: Vec<(String, Vec<String>)> = {
+        let Ok(tape) = jomini::TextTape::from_slice(string.as_bytes()) else {
+            return false;
+        };
+        let reader = tape.windows1252_reader();
+        let mut events: Vec<(String, Vec<String>)> = Vec::new();
+
+        for (key, _, value) in reader.fields() {
+            if !EVENT_TYPES.contains(&key.read_str().as_ref()) {
+                continue;
+            }
+            let Ok(body) = value.read_object() else {
+                continue;
+            };
+
+            let mut event_id: Option<String> = None;
+            let mut triggers: Vec<String> = Vec::new();
+            for (field_key, _, field_value) in body.fields() {
+                let field_key_str = field_key.read_str();
+                if field_key_str == "id" {
+                    if let Ok(id) = field_value.read_string() {
+                        event_id = Some(id);
+                    }
+                } else if EVENT_TYPES.contains(&field_key_str.as_ref()) {
+                    collect_trigger_target(&field_value, &mut triggers);
+                } else if let Ok(nested) = field_value.read_object() {
+                    scan_event_triggers(&nested, &mut triggers);
+                }
+            }
+
+            if let Some(id) = event_id {
+                events.push((id, triggers));
+            }
+        }
+        events
+    };
+
+    if events.is_empty() {
+        return false;
+    }
+
+    // priority_toposort ranks nodes via petgraph::toposort, which is
+    // DFS-post-order reversed: nodes added last get the lowest ranks.
+    // We want natural-alphabetical rank ordering (so each subtree's
+    // component is ordered by its root event id), so insert in reverse
+    // natural order — the toposort reversal lands ranks in ascending
+    // natural-sort order.
+    let mut sorted_ids: Vec<String> = events.iter().map(|(id, _)| id.clone()).collect();
+    sorted_ids.sort_by_key(|id| std::cmp::Reverse(natural_key(id)));
+
+    let mut graph = DiGraph::<String, ()>::new();
+    let mut node_map: HashMap<String, _> = HashMap::new();
+    for id in &sorted_ids {
+        let idx = graph.add_node(id.clone());
+        node_map.insert(id.clone(), idx);
+    }
+    for (id, triggers) in &events {
+        let Some(&from) = node_map.get(id) else {
+            continue;
+        };
+        for t in triggers {
+            if let Some(&to) = node_map.get(t) {
+                graph.add_edge(from, to, ());
+            }
+        }
+    }
+
+    // Events have a single edge type, so pass the trigger graph as both
+    // priority and union inputs; insertion order already encodes the
+    // desired tie-break (natural sort).
+    let Ok(ordered) = sort::priority_toposort(&graph, &graph) else {
+        return false;
+    };
+
+    let new_content = reorder_event_blocks(&string, &ordered);
+    if new_content == string {
+        return false;
+    }
+    if mode == FormatMode::Write {
+        drop(std::fs::write(path, new_content.as_bytes()));
+    }
+    true
+}
+
+/// Walks a value's nested objects, recording any `EVENT_TYPES = ...` trigger
+/// found. Scalars and arrays are skipped — only object-shaped values can
+/// host triggers.
+fn scan_event_triggers<E>(obj: &jomini::text::ObjectReader<'_, '_, E>, out: &mut Vec<String>)
+where
+    E: jomini::Encoding + Clone,
+{
+    for (key, _, value) in obj.fields() {
+        let key_str = key.read_str();
+        if EVENT_TYPES.contains(&key_str.as_ref()) {
+            collect_trigger_target(&value, out);
+        } else if let Ok(nested) = value.read_object() {
+            scan_event_triggers(&nested, out);
+        }
+    }
+}
+
+/// Extracts the target event id from `<event_type> = { id = X ... }` or the
+/// shorthand `<event_type> = X` form.
+fn collect_trigger_target<E>(value: &jomini::text::ValueReader<'_, '_, E>, out: &mut Vec<String>)
+where
+    E: jomini::Encoding + Clone,
+{
+    if let Ok(trigger_obj) = value.read_object() {
+        for (k, _, v) in trigger_obj.fields() {
+            if k.read_str() == "id"
+                && let Ok(id) = v.read_string()
+            {
+                out.push(id);
+            }
+        }
+    } else if let Ok(id) = value.read_string() {
+        out.push(id);
+    }
 }
 
 // Handle linting (e.g. like `cargo clippy`).
@@ -1199,4 +1377,172 @@ fn extract_focus_id(block: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Reorders top-level `<event_type> = { ... }` blocks in `content` so that
+/// position `i` in the file holds the block whose id is `ordered_ids[i]`.
+/// Safety-bails to an unchanged copy if the block count disagrees with the
+/// caller's expected ordering.
+fn reorder_event_blocks(content: &str, ordered_ids: &[String]) -> String {
+    let blocks = find_event_blocks(content);
+
+    if blocks.len() != ordered_ids.len() {
+        return content.to_owned();
+    }
+
+    #[expect(
+        clippy::string_slice,
+        reason = "indices from find_event_blocks are guaranteed ASCII-boundary positions"
+    )]
+    let block_map: HashMap<&str, &str> = blocks
+        .iter()
+        .map(|(start, end, id)| (id.as_str(), &content[*start..*end]))
+        .collect();
+
+    let mut result = content.to_owned();
+    for (pos, (start, end, _)) in blocks.iter().enumerate().rev() {
+        if let Some(target_id) = ordered_ids.get(pos)
+            && let Some(&new_block) = block_map.get(target_id.as_str())
+        {
+            result.replace_range(*start..*end, new_block);
+        }
+    }
+
+    result
+}
+
+/// Scans `content` for top-level event blocks (`country_event`,
+/// `news_event`, etc.), returning `(start, end, id)` tuples. Each block's
+/// brace-matched body is consumed before the outer loop resumes, so nested
+/// `<event_type> = { ... }` triggers inside an event body are not misread
+/// as definitions.
+///
+/// All byte indices produced here land on ASCII character boundaries.
+#[expect(
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    reason = "all byte accesses are guarded by i < bytes.len() checks; \
+              string slice indices are derived from ASCII token scanning so they \
+              are guaranteed to fall on char boundaries"
+)]
+fn find_event_blocks(content: &str) -> Vec<(usize, usize, String)> {
+    let bytes = content.as_bytes();
+    let mut blocks: Vec<(usize, usize, String)> = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'#' {
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if bytes[i] == b'"' {
+            i += 1;
+            while i < bytes.len() && bytes[i] != b'"' {
+                i += 1;
+            }
+            if i < bytes.len() {
+                i += 1;
+            }
+            continue;
+        }
+        let preceded_by_ws = i == 0 || bytes[i - 1].is_ascii_whitespace();
+        let matched_kw_len = if preceded_by_ws {
+            EVENT_TYPES.iter().find_map(|ev| {
+                let ev_bytes = ev.as_bytes();
+                if !bytes[i..].starts_with(ev_bytes) {
+                    return None;
+                }
+                let after = i + ev_bytes.len();
+                let at_boundary = after >= bytes.len()
+                    || !(bytes[after].is_ascii_alphanumeric() || bytes[after] == b'_');
+                at_boundary.then_some(ev_bytes.len())
+            })
+        } else {
+            None
+        };
+        let Some(kw_len) = matched_kw_len else {
+            i += 1;
+            continue;
+        };
+
+        let mut j = i + kw_len;
+        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        if j >= bytes.len() || bytes[j] != b'=' {
+            i += 1;
+            continue;
+        }
+        j += 1;
+        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        if j >= bytes.len() || bytes[j] != b'{' {
+            i += 1;
+            continue;
+        }
+
+        let line_start = content[..i].rfind('\n').map_or(0, |p| p + 1);
+        let mut block_start = line_start;
+        let mut scan_pos = line_start;
+        loop {
+            if scan_pos == 0 {
+                break;
+            }
+            let prev_nl = scan_pos - 1;
+            let prev_line_start = content[..prev_nl].rfind('\n').map_or(0, |p| p + 1);
+            if content[prev_line_start..prev_nl].trim().starts_with('#') {
+                block_start = prev_line_start;
+                scan_pos = prev_line_start;
+            } else {
+                break;
+            }
+        }
+        let mut depth: u32 = 0;
+        let mut m = j;
+        loop {
+            if m >= bytes.len() {
+                break;
+            }
+            match bytes[m] {
+                b'#' => {
+                    while m < bytes.len() && bytes[m] != b'\n' {
+                        m += 1;
+                    }
+                }
+                b'"' => {
+                    m += 1;
+                    while m < bytes.len() && bytes[m] != b'"' {
+                        m += 1;
+                    }
+                    if m < bytes.len() {
+                        m += 1;
+                    }
+                }
+                b'{' => {
+                    depth += 1;
+                    m += 1;
+                }
+                b'}' => {
+                    depth -= 1;
+                    m += 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                _ => {
+                    m += 1;
+                }
+            }
+        }
+        if m < bytes.len() && bytes[m] == b'\n' {
+            m += 1;
+        }
+        if let Some(id) = extract_focus_id(&content[block_start..m]) {
+            blocks.push((block_start, m, id));
+        }
+        i = m;
+    }
+    blocks
 }

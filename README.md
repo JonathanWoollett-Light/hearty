@@ -62,10 +62,10 @@ Arguments:
 
 Options:
       --all          Check all languages
+      --check        Verify formatting without modifying files; exits non-zero on drift
+      --format       Apply formatting across all supported file types
       --lang <LANG>  Languages to check. May be repeated: --lang english --lang german. Defaults to english if neither --lang nor --all is given [possible values: brazilian_portuguese, chinese, english, french, german, japanese, korean, polish, russian, spanish]
-      --lint         Run localisation/version checks. Enabled by default when no action flag is given
-      --format       Reorder focus blocks in national_focus files in place
-      --check        Verify focus-block ordering without modifying files; exits non-zero on drift
+      --lint         Run linting checks. Enabled by default when no action flag is given
   -h, --help         Print help
 ```
 
@@ -77,7 +77,6 @@ Options:
 
 In no particular order.
 
-- Extend focus sorting functionality to events (events should be ordered based on event chains, then alphabetically).
 - Add more basic formatting e.g. `prerequisite = { focus = my_focus }` should be 1 line, and should have this exact spacing.
 - Check events can be fired (sometimes old events end up existing in code but never being used, just being clutter).
 - Check focuses, events, etc. have gfx.
