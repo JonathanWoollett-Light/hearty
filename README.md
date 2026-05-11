@@ -55,6 +55,9 @@ Arguments:
 Options:
       --all          Check all languages
       --lang <LANG>  Languages to check. May be repeated: --lang english --lang german. Defaults to english if neither --lang nor --all is given [possible values: brazilian_portuguese, chinese, english, french, german, japanese, korean, polish, russian, spanish]
+      --lint         Run localisation/version checks. Enabled by default when no action flag is given
+      --format       Reorder focus blocks in national_focus files in place
+      --check        Verify focus-block ordering without modifying files; exits non-zero on drift
   -h, --help         Print help
 ```
 

@@ -77,6 +77,8 @@ const HOI4_CACHE_MAX_AGE_SECS: u64 = 86_400;
 enum AppError {
     #[error("no files were processed (empty walk)")]
     EmptyWalk,
+    #[error("formatting check failed: one or more files would be reformatted")]
+    FormatDrift,
     #[error("missing localisations found")]
     MissingLocalisations,
     #[error("{0} is not a mod directory (no descriptor.mod found)")]
@@ -156,15 +158,31 @@ impl TryFrom<&str> for Language {
 }
 
 #[derive(Debug, Clone, Parser)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "fields are independent CLI flags, not a state machine"
+)]
 struct Args {
     /// Check all languages.
     #[arg(long, conflicts_with = "lang")]
     all: bool,
 
+    /// Verify focus-block ordering without modifying files; exits non-zero on drift.
+    #[arg(long)]
+    check: bool,
+
+    /// Reorder focus blocks in national_focus files in place.
+    #[arg(long)]
+    format: bool,
+
     /// Languages to check. May be repeated: --lang english --lang german.
     /// Defaults to english if neither --lang nor --all is given.
     #[arg(long, value_enum, conflicts_with = "all")]
     lang: Vec<Language>,
+
+    /// Run localisation/version checks. Enabled by default when no action flag is given.
+    #[arg(long)]
+    lint: bool,
 
     /// Path to the mod directory. Defaults to the current directory.
     #[arg(default_value = ".")]
@@ -172,6 +190,17 @@ struct Args {
 }
 
 impl Args {
+    /// Returns `(lint, format, check)` after applying the defaulting rule: if
+    /// no action flag is set, `--lint` is implicitly enabled; otherwise only
+    /// the explicitly set flags are enabled.
+    fn actions(&self) -> (bool, bool, bool) {
+        if self.lint || self.format || self.check {
+            (self.lint, self.format, self.check)
+        } else {
+            (true, false, false)
+        }
+    }
+
     fn active_languages(&self) -> Vec<Language> {
         if self.all {
             vec![
@@ -246,6 +275,12 @@ struct State {
     things: BTreeMap<String, (std::path::PathBuf, usize)>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FormatMode {
+    Check,
+    Write,
+}
+
 fn fmt_commas(n: u64) -> String {
     let digits = n.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
@@ -265,22 +300,36 @@ fn main() -> Result<(), String> {
 fn inner_main() -> Result<(), AppError> {
     let start = std::time::Instant::now();
     let args = Args::parse();
+    let (do_lint, do_format, do_check) = args.actions();
 
-    // Format
-    format(&args);
+    if do_format {
+        format(&args, FormatMode::Write);
+    }
 
-    // Linting
-    lint(&args)?;
+    let drift = if do_check {
+        format(&args, FormatMode::Check)
+    } else {
+        false
+    };
+
+    if do_lint {
+        lint(&args)?;
+    }
 
     println!("Finished in {:.2?}.", start.elapsed());
+
+    if drift {
+        return Err(AppError::FormatDrift);
+    }
     Ok(())
 }
 
-fn format(args: &Args) {
+fn format(args: &Args, mode: FormatMode) -> bool {
     // Go through all focus tree files, sort their contents in order:
     // 1. Focuses within sub-trees are ordered breadth first with parent(s) before child focuses.
     // 2. Sub-trees are ordered based on the x and y coordinates of their roots.
     let national_focus_dir = args.path.join("common").join("national_focus");
+    let drift = std::sync::atomic::AtomicBool::new(false);
     walkdir::WalkDir::new(&args.path)
         .into_iter()
         .par_bridge()
@@ -289,22 +338,24 @@ fn format(args: &Args) {
                 return;
             };
             let path = dir.path();
-            if path.parent() == Some(national_focus_dir.as_path()) {
-                format_focus_file(path);
+            if path.parent() == Some(national_focus_dir.as_path()) && format_focus_file(path, mode)
+            {
+                drift.store(true, std::sync::atomic::Ordering::Relaxed);
             }
         });
+    drift.into_inner()
 }
 
-fn format_focus_file(path: &Path) {
+fn format_focus_file(path: &Path, mode: FormatMode) -> bool {
     let Ok(string) = read_to_string(path) else {
-        return;
+        return false;
     };
 
     // Collect ordered focus IDs across all focus_trees in the file. The tape
     // borrow is scoped so `string` is free to use for rewriting afterward.
     let all_ordered_ids: Vec<String> = {
         let Ok(tape) = jomini::TextTape::from_slice(string.as_bytes()) else {
-            return;
+            return false;
         };
         let reader = tape.windows1252_reader();
         let mut ids: Vec<String> = Vec::new();
@@ -410,12 +461,17 @@ fn format_focus_file(path: &Path) {
         ids
     };
 
-    if !all_ordered_ids.is_empty() {
-        let new_content = reorder_focus_blocks(&string, &all_ordered_ids);
-        if new_content != string {
-            drop(std::fs::write(path, new_content.as_bytes()));
-        }
+    if all_ordered_ids.is_empty() {
+        return false;
     }
+    let new_content = reorder_focus_blocks(&string, &all_ordered_ids);
+    if new_content == string {
+        return false;
+    }
+    if mode == FormatMode::Write {
+        drop(std::fs::write(path, new_content.as_bytes()));
+    }
+    true
 }
 
 // Handle linting (e.g. like `cargo clippy`).
