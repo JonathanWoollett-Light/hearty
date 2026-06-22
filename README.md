@@ -81,3 +81,4 @@ In no particular order.
 - Check events can be fired (sometimes old events end up existing in code but never being used, just being clutter).
 - Check focuses, events, etc. have gfx.
 - Check localisation spelling and grammar.
+- `--format` should order events like it orders focuses, by considering event chain not just their names (a `x.2` could be after `x.3` in a chain, this might also be something the linter should point out).

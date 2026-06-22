@@ -3,9 +3,9 @@ use std::process::Stdio;
 use base64::prelude::*;
 
 #[cfg(windows)]
-const HASH: &str = "+1gLtSwyXfBbj/CeOV+4Yv0WiSt3oOHF5Sshq8n5Bj4=";
+const HASH: &str = "2R58mJqNBlknrwYl+kzYumJ+506ktsAHfEw5r1HBR2I=";
 #[cfg(not(windows))]
-const HASH: &str = "zqztMp2ck2kBydZ8iL7EumZQ+QYJ9CGTOpT0zNO6usc=";
+const HASH: &str = "89VtIYe+jFVkdV5yLopzN7daVYgpTpnYGLJToBAS/Uw=";
 
 const BINARY: &str = env!("CARGO_BIN_EXE_hearty");
 
@@ -54,4 +54,32 @@ fn test_fmt() {
     // Check that the result from formatting or fixing matches a specific target.
     let hash = dasher::hash_directory(to.clone()).unwrap();
     assert_eq!(BASE64_STANDARD.encode(&hash), HASH);
+}
+
+/// Formatting must be idempotent: a second `--format` over already-formatted
+/// files must produce byte-identical output (the directory hash is unchanged).
+/// Guards against the sort/ separator oscillation that made the formatter churn
+/// the file on every run.
+#[test]
+fn test_fmt_idempotent() {
+    let tmp_dir = tempfile::TempDir::new().unwrap();
+    let to = tmp_dir.path().join("test_mod");
+    copy_dir::copy_dir("tests/test_mod", &to).unwrap();
+
+    let run = || {
+        let output = std::process::Command::new(BINARY)
+            .args([to.to_str().unwrap(), "--format"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        dasher::hash_directory(to.clone()).unwrap()
+    };
+
+    let first = run();
+    let second = run();
+    assert_eq!(
+        BASE64_STANDARD.encode(&first),
+        BASE64_STANDARD.encode(&second),
+        "second --format changed the files; formatting is not idempotent"
+    );
 }

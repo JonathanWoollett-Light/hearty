@@ -419,13 +419,11 @@ fn format_focus_file(path: &Path, mode: FormatMode) -> bool {
                 continue;
             };
 
-            // Focus IDs in file order, deduplicated. Order must be both
-            // deterministic AND file-order-preserving: petgraph's DFS-based
-            // toposort walks node_indices() in order, and the resulting order
-            // becomes the `rank` that breaks ties in priority_toposort. An
-            // alphabetical order (e.g. from BTreeSet) would assign leaf focuses
-            // like `eight` the highest rank and push them to the end, instead
-            // of keeping them next to their parent in file order.
+            // Focus IDs in file order, deduplicated. File order is load-bearing:
+            // it becomes the node-index that `priority_toposort` uses as its
+            // stable tie-break, so focuses stay in their existing order except
+            // where a relative_position/prerequisite edge forces a move. This
+            // both minimises churn and makes re-formatting a fixed point.
             let mut node_ids: Vec<String> = Vec::new();
             let mut seen_ids: HashSet<String> = HashSet::new();
             let mut relative_position_edges = Vec::new();
@@ -490,7 +488,9 @@ fn format_focus_file(path: &Path, mode: FormatMode) -> bool {
                 })
                 .collect();
 
-            // `prerequisite`s should contribute to the order, but should always be behind `relative_positions`
+            // Both edge sets are enforced by the union in `priority_toposort`;
+            // they are kept in separate graphs only to mirror the event caller's
+            // two-graph signature.
             for (a, b) in relative_position_edges {
                 if let (Some(na), Some(nb)) = (node_map.get(&a), node_map.get(&b)) {
                     relative_position_graph.add_edge(na.0, nb.0, ());
@@ -573,14 +573,13 @@ fn format_event_file(path: &Path, mode: FormatMode) -> bool {
         return false;
     }
 
-    // priority_toposort ranks nodes via petgraph::toposort, which is
-    // DFS-post-order reversed: nodes added last get the lowest ranks.
-    // We want natural-alphabetical rank ordering (so each subtree's
-    // component is ordered by its root event id), so insert in reverse
-    // natural order — the toposort reversal lands ranks in ascending
-    // natural-sort order.
+    // `priority_toposort` is a stable topological sort that breaks ties by
+    // node-index (insertion order), so insert nodes in ascending natural-sort
+    // order. Each weakly-connected subtree is then emitted in order of its
+    // natural-alphabetically-earliest event id, with natural order as the
+    // tie-break within a subtree.
     let mut sorted_ids: Vec<String> = events.iter().map(|(id, _)| id.clone()).collect();
-    sorted_ids.sort_by_key(|id| std::cmp::Reverse(natural_key(id)));
+    sorted_ids.sort_by_key(|id| natural_key(id));
 
     let mut graph = DiGraph::<String, ()>::new();
     let mut node_map: HashMap<String, _> = HashMap::new();
@@ -600,8 +599,7 @@ fn format_event_file(path: &Path, mode: FormatMode) -> bool {
     }
 
     // Events have a single edge type, so pass the trigger graph as both
-    // priority and union inputs; insertion order already encodes the
-    // desired tie-break (natural sort).
+    // union inputs; insertion order (natural sort, above) is the tie-break.
     let Ok(ordered) = sort::priority_toposort(&graph, &graph) else {
         return false;
     };
@@ -1199,40 +1197,78 @@ pub fn vdf_to_json(vdf: &Vdf) -> JsonValue {
     JsonValue::Object(root)
 }
 
-/// Reorders `focus = { ... }` blocks in `content` so that position `i` in the
-/// file holds the block whose ID is `ordered_ids[i]`. Works from the end of
-/// the file backward so byte offsets stay valid while replacing.
+/// Rebuilds `content` so that position `i` holds the block whose id is
+/// `ordered_ids[i]`, normalizing every whitespace-only gap between adjacent
+/// blocks to a single blank line. Gaps holding non-whitespace content (a
+/// `focus_tree`/event-type boundary, a `shared_focus` reference, etc.) are kept
+/// verbatim so structural layout survives. Each block carries its own trailing
+/// newline (see `find_focus_blocks`/`find_event_blocks`), so a whitespace-only
+/// gap collapses to exactly one blank line and the rewrite is idempotent.
 ///
-/// Returns `content` unchanged if the number of focus blocks found does not
-/// match `ordered_ids.len()` (safety bail-out for unexpected file shapes).
-fn reorder_focus_blocks(content: &str, ordered_ids: &[String]) -> String {
-    let blocks = find_focus_blocks(content);
-
+/// Returns `content` unchanged if the number of blocks found does not match
+/// `ordered_ids.len()`, or if an ordered id has no matching block (safety
+/// bail-outs for unexpected file shapes).
+#[expect(
+    clippy::string_slice,
+    reason = "indices from find_focus_blocks/find_event_blocks are guaranteed ASCII-boundary positions"
+)]
+fn reorder_blocks(
+    content: &str,
+    blocks: &[(usize, usize, String)],
+    ordered_ids: &[String],
+) -> String {
     if blocks.len() != ordered_ids.len() {
         return content.to_owned();
     }
+    let (Some((first_start, ..)), Some((.., last_end, _))) = (blocks.first(), blocks.last()) else {
+        return content.to_owned();
+    };
 
-    // All indices in `blocks` came from scanning `content` byte-by-byte, so
-    // every `start..end` range is guaranteed to land on a char boundary.
-    #[expect(
-        clippy::string_slice,
-        reason = "indices from find_focus_blocks are guaranteed ASCII-boundary positions"
-    )]
     let block_map: HashMap<&str, &str> = blocks
         .iter()
         .map(|(start, end, id)| (id.as_str(), &content[*start..*end]))
         .collect();
 
-    let mut result = content.to_owned();
-    for (pos, (start, end, _)) in blocks.iter().enumerate().rev() {
-        if let Some(target_id) = ordered_ids.get(pos)
-            && let Some(&new_block) = block_map.get(target_id.as_str())
+    // Preserve the file's existing line-ending style.
+    let newline = if content.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+
+    let mut result = String::with_capacity(content.len());
+    result.push_str(&content[..*first_start]);
+    for (pos, id) in ordered_ids.iter().enumerate() {
+        let Some(&block) = block_map.get(id.as_str()) else {
+            return content.to_owned();
+        };
+        // Emit the block with exactly one trailing newline. Normalizing here is
+        // what makes the rewrite idempotent: a file's final block usually has no
+        // trailing newline, so without this a block moved out of last place
+        // would only gain its blank-line separator on the *second* run (the lone
+        // newline gets absorbed as the block terminator on re-parse).
+        result.push_str(block.trim_end_matches(['\r', '\n']));
+        result.push_str(newline);
+        // Separator to the next block: one blank line for a whitespace-only
+        // gap, otherwise the original (structural) bytes.
+        if let (Some((.., end, _)), Some((next_start, ..))) = (blocks.get(pos), blocks.get(pos + 1))
         {
-            result.replace_range(*start..*end, new_block);
+            let gap = &content[*end..*next_start];
+            if gap.trim().is_empty() {
+                result.push_str(newline);
+            } else {
+                result.push_str(gap);
+            }
         }
     }
-
+    result.push_str(&content[*last_end..]);
     result
+}
+
+/// Reorders `focus = { ... }` blocks in `content` so position `i` holds the
+/// block whose ID is `ordered_ids[i]`. See [`reorder_blocks`].
+fn reorder_focus_blocks(content: &str, ordered_ids: &[String]) -> String {
+    reorder_blocks(content, &find_focus_blocks(content), ordered_ids)
 }
 
 /// Scans `content` for `focus = { ... }` blocks, returning `(start, end, id)`
@@ -1343,7 +1379,13 @@ fn find_focus_blocks(content: &str) -> Vec<(usize, usize, String)> {
                             }
                         }
                     }
-                    // Consume the newline that follows the closing brace.
+                    // Consume the line ending that follows the closing brace
+                    // (LF or CRLF) so every block carries exactly one trailing
+                    // newline. `reorder_blocks` relies on this when inserting
+                    // blank-line separators.
+                    if m < bytes.len() && bytes[m] == b'\r' {
+                        m += 1;
+                    }
                     if m < bytes.len() && bytes[m] == b'\n' {
                         m += 1;
                     }
@@ -1379,36 +1421,10 @@ fn extract_focus_id(block: &str) -> Option<String> {
     None
 }
 
-/// Reorders top-level `<event_type> = { ... }` blocks in `content` so that
-/// position `i` in the file holds the block whose id is `ordered_ids[i]`.
-/// Safety-bails to an unchanged copy if the block count disagrees with the
-/// caller's expected ordering.
+/// Reorders top-level `<event_type> = { ... }` blocks in `content` so position
+/// `i` holds the block whose id is `ordered_ids[i]`. See [`reorder_blocks`].
 fn reorder_event_blocks(content: &str, ordered_ids: &[String]) -> String {
-    let blocks = find_event_blocks(content);
-
-    if blocks.len() != ordered_ids.len() {
-        return content.to_owned();
-    }
-
-    #[expect(
-        clippy::string_slice,
-        reason = "indices from find_event_blocks are guaranteed ASCII-boundary positions"
-    )]
-    let block_map: HashMap<&str, &str> = blocks
-        .iter()
-        .map(|(start, end, id)| (id.as_str(), &content[*start..*end]))
-        .collect();
-
-    let mut result = content.to_owned();
-    for (pos, (start, end, _)) in blocks.iter().enumerate().rev() {
-        if let Some(target_id) = ordered_ids.get(pos)
-            && let Some(&new_block) = block_map.get(target_id.as_str())
-        {
-            result.replace_range(*start..*end, new_block);
-        }
-    }
-
-    result
+    reorder_blocks(content, &find_event_blocks(content), ordered_ids)
 }
 
 /// Scans `content` for top-level event blocks (`country_event`,
@@ -1535,6 +1551,11 @@ fn find_event_blocks(content: &str) -> Vec<(usize, usize, String)> {
                     m += 1;
                 }
             }
+        }
+        // Consume the line ending (LF or CRLF) so every block carries exactly
+        // one trailing newline, matching `find_focus_blocks`.
+        if m < bytes.len() && bytes[m] == b'\r' {
+            m += 1;
         }
         if m < bytes.len() && bytes[m] == b'\n' {
             m += 1;
