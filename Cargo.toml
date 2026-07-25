@@ -12,8 +12,8 @@ categories = ["command-line-utilities"]
 walkdir = "2.5.0"
 rayon = "1.12.0"
 indicatif = "0.18.4"
-itertools = "0.14.0"
-jomini = { version = "0.34.1", features = ["envelope"] }
+itertools = "0.15.0"
+jomini = { version = "0.35.0", features = ["envelope"] }
 clap = { version = "4", features = ["derive"] }
 displaydoc = "0.2.5"
 miette = { version = "7", features = ["fancy"] }
@@ -29,6 +29,6 @@ tar = "0.4.45"
 
 [dev-dependencies]
 dasher = "0.3.3"
-base64 = "0.22.1"
+base64 = "0.23.0"
 tempfile = "3.27.0"
 copy_dir = "0.1.3"
