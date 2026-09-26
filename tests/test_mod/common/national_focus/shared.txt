@@ -1,0 +1,27 @@
+# Top-level shared and joint focuses: there is no focus_tree to sort.
+shared_focus = {
+	id = HRT_shared
+	x = 10
+	y = 0
+	offset = {
+		y = 1
+		x = 1
+		trigger = { tag = HRT }
+	}
+	cost = 5
+	cancel_if_invalid = yes
+	completion_reward = {
+		add_political_power = 25
+	}
+}
+
+joint_focus = {
+	id = HRT_joint
+	relative_position_id = HRT_shared
+	prerequisite = { focus = HRT_shared }
+	x = 0
+	y = 1
+	cost = 5
+	offset = { x = 0 y = 0 }
+	completion_reward = { add_stability = 0.01 }
+}

@@ -1,0 +1,83 @@
+add_namespace = "chains"
+
+# Fired by chains.1.
+country_event = {
+	id = chains.3
+	title = chains.3.t
+	desc = {
+		trigger = { has_war = yes }
+		text = chains.3.d_war
+	}
+	desc = {
+		text = chains.3.d_peace
+	}
+	is_triggered_only = yes
+	option = {
+		ai_chance = { factor = 1 }
+		name = chains.3.a
+		trigger = { always = yes }
+	}
+}
+
+news_event = {
+	id = chains.2
+	title = chains.2.t
+	desc = chains.2.d
+	picture = "GFX_news_event_generic_read_write"
+	major = no
+	hidden = no
+	is_triggered_only = no
+	option = {
+		name = chains.2.a
+		ai_chance = { base = 1 }
+	}
+}
+
+country_event = {
+	id = chains.1
+	title = chains.1.t
+	desc = chains.1.d
+	# Fires on its own once a year.
+	fire_only_once = no
+	trigger = { }
+	mean_time_to_happen = { days = 365 }
+	immediate = {
+		if = {
+			limit = { has_war = no }
+			news_event = { id = chains.2 days = 1 }
+		}
+	}
+	option = {
+		name = chains.1.a
+		country_event = chains.3
+		ai_chance = { }
+	}
+}
+
+state_event = {
+	id = chains.10
+	title = chains.10.t
+	desc = chains.10.d
+	option = {
+		name = chains.10.a
+	}
+}
+
+unit_leader_event = {
+	id = chains.4
+	title = chains.4.t
+	desc = chains.4.d
+	option = {
+		name = chains.4.a
+		unit_leader_event = { id = chains.5 }
+	}
+}
+
+operative_leader_event = {
+	id = chains.5
+	title = chains.5.t
+	desc = chains.5.d
+	option = {
+		name = chains.5.a
+	}
+}

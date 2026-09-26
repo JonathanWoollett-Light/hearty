@@ -1,0 +1,11 @@
+# Named like English localisation (`*_l_english`), but only
+# `*_l_<language>.yml` files under `localisation/` are localisation, so the
+# linter ignores this file: HRT_odd_a stays missing although the next line
+# reads like its entry.
+ HRT_odd_a:0 "Not localisation"
+spriteTypes = {
+	spriteType = {
+		name = "GFX_hearty_panel"
+		texturefile = "gfx/interface/hearty_panel.dds"
+	}
+}

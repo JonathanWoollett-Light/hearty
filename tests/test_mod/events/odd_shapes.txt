@@ -1,0 +1,21 @@
+# Shapes the event sorter and the linter skip rather than failing on.
+add_namespace = odd
+country_event = odd.3
+
+country_event = {
+	id = odd.2
+	title = odd.2.t
+	option = odd_scalar_option
+	option = {
+		name = odd.2.a
+	}
+}
+
+country_event = {
+	id = odd.1
+	title = odd.1.t
+	option = {
+		name = odd.1.a
+		country_event = odd.2
+	}
+}

@@ -1,0 +1,31 @@
+# Events already in order, with uneven blank lines between them.
+country_event = {
+	id = spacing.1
+	title = spacing.1.t
+	desc = spacing.1.d
+	option = { name = spacing.1.a }
+}
+country_event = {
+	id = spacing.2
+	title = spacing.2.t
+	desc = spacing.2.d
+	option = { name = spacing.2.a }
+}
+
+# A section comment between events stays where it is.
+
+country_event = {
+	id = spacing.3
+	title = spacing.3.t
+	desc = spacing.3.d
+	option = { name = spacing.3.a }
+}
+
+
+
+country_event = {
+	id = spacing.4
+	title = spacing.4.t
+	desc = spacing.4.d
+	option = { name = spacing.4.a }
+}

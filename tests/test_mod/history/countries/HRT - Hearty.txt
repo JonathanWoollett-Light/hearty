@@ -1,0 +1,15 @@
+capital=1
+oob  =  "HRT_1936"
+set_research_slots = 3
+set_politics = {
+	ruling_party = neutrality
+	last_election = "1932.1.1"
+}
+set_popularities = {
+	neutrality = 100
+}
+add_ideas = {
+	HRT_idea
+	HRT_advisor_idea
+}
+recruit_character = HRT_leader

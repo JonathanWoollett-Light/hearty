@@ -1,0 +1,26 @@
+# Shapes the focus sorter skips rather than failing on.
+focus_tree = odd_scalar_tree
+
+focus_tree = {
+	id = HRT_odd_tree
+	focus = odd_scalar_focus
+	# A focus without an id is never sorted.
+	focus = {
+		x = 3
+		y = 0
+		cost = 1
+	}
+	focus = {
+		id = HRT_odd_b
+		prerequisite = { focus = HRT_odd_a }
+		x = 1
+		y = 1
+		cost = 1
+	}
+	focus = {
+		id = HRT_odd_a
+		x = 1
+		y = 0
+		cost = 1
+	}
+}

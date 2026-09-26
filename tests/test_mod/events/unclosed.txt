@@ -1,0 +1,16 @@
+add_namespace = unclosed
+
+# An event out of order, but this file is not sorted: the option's closing
+# brace is missing, so it does not parse and is left as it is.
+country_event = {
+	id = unclosed.2
+	hidden = yes
+}
+
+country_event = {
+	id = unclosed.1
+	title = unclosed.1.t
+	fire_only_once = no
+	option = {
+		name = unclosed.1.a
+}

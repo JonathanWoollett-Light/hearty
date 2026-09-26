@@ -1,0 +1,66 @@
+characters = {
+	HRT_leader = {
+		portraits = {
+			civilian = {
+				large = GFX_portrait_HRT_leader
+			}
+		}
+		name = HRT_leader_name
+		can_be_captured = yes
+		allowed = { original_tag = HRT }
+		country_leader = {
+			traits = { popular_figure }
+			ideology = despotism
+			expire = "1965.1.1.1"
+			desc = HRT_leader_desc
+			visible = { }
+		}
+		advisor = {
+			cost = 150
+			slot = political_advisor
+			idea_token = HRT_leader_advisor
+			allowed = { }
+			visible = { always = yes }
+			available = { }
+			traits = { captain_of_industry }
+		}
+	}
+
+	HRT_general = {
+		name = HRT_general_name
+		available = { }
+		instance = {
+			allowed = { has_dlc = "By Blood Alone" }
+			field_marshal = {
+				skill = 3
+				traits = { }
+				attack_skill = 2
+				defense_skill = 3
+				planning_skill = 2
+				logistics_skill = 3
+				visible = { }
+			}
+		}
+		corps_commander = {
+			visible = { always = yes }
+			skill = 2
+			attack_skill = 2
+			defense_skill = 1
+			planning_skill = 2
+			logistics_skill = 1
+		}
+		navy_leader = {
+			skill = 4
+			visible = { }
+			attack_skill = 4
+			defense_skill = 3
+			maneuvering_skill = 4
+			coordination_skill = 3
+		}
+		scientist = {
+			visible = { always = yes }
+			skills = { specialization_nuclear = 2 }
+			traits = { scientist_trait_theorist }
+		}
+	}
+}

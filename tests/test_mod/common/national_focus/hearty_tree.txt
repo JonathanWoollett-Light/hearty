@@ -1,0 +1,83 @@
+search_filter_prios = {
+	FOCUS_FILTER_POLITICAL = 10
+}
+
+focus_tree = {
+	shared_focus = HRT_shared
+	continuous_focus_position = { x = 50 y = 1000 }
+	id = "hearty_focus_tree"
+	country = {
+		factor = 0
+		modifier = {
+			add = 10
+			tag = HRT
+		}
+	}
+	default = no
+	initial_show_position = {
+		focus = HRT_second
+	}
+
+	focus = {
+		id = HRT_second
+		icon = "GFX_goal_generic_political_pressure"
+		prerequisite = { focus = HRT_first }
+		relative_position_id = HRT_first
+		x = 0
+		y = 1
+		cost = 10
+		available = { }
+		cancel_if_invalid = yes
+		continue_if_invalid = no
+		available_if_capitulated = no
+		completion_reward = {
+			add_political_power = 50
+		}
+	}
+
+	# The root of the tree.
+	focus = {
+		id = HRT_first
+		icon = GFX_goal_generic_construct_civ_factory
+		x = 5
+		y = 0
+		cost = 10
+		allow_branch = { }
+		offset = {
+			trigger = { has_dlc = "La Resistance" }
+			y = 1
+			x = 2
+		}
+		offset = { x = 0 y = 0.0 }
+		mutually_exclusive = { }
+		ai_will_do = { factor = 1 }
+		completion_reward = {
+			add_stability = 0.05
+		}
+	}
+
+	focus = {
+		id = HRT_third
+		prerequisite = { focus = HRT_first }
+		relative_position_id = HRT_first
+		x = 2
+		y = 1
+		cost = 10
+		allow_branch = { always = yes }
+		ai_will_do = {
+			base = 1
+		}
+		completion_reward = { add_war_support = 0.05 }
+	}
+
+	focus = {
+		id = HRT_fourth
+		prerequisite = { focus = HRT_second focus = HRT_third }
+		relative_position_id = HRT_first
+		x = 0
+		y = 2
+		cost = 10
+		ai_will_do = { }
+		completion_reward = { }
+	}
+}

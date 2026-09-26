@@ -1,0 +1,13 @@
+add_namespace = shared_line
+
+# Two events share a line (`} country_event = {`), so the sorter leaves them
+# as they are. The first has the title of an option in cycle.txt, which
+# comes first, so a missing localisation of it is reported there.
+country_event = {
+	id = shared_line.2
+	title = cycle.1.a
+	hidden = yes
+} country_event = {
+	id = shared_line.1
+	hidden = yes
+}

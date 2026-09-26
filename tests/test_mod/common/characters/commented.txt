@@ -1,0 +1,15 @@
+# Every redundant field here has a comment that removing it would delete, so
+# `--fix` leaves this file alone.
+characters = {
+	HRT_commented = {
+		name = HRT_commented_name
+		can_be_captured = yes # Written out on purpose.
+		advisor = {
+			slot = theorist
+			idea_token = HRT_commented_advisor
+			visible = {
+				# Always visible.
+			}
+		}
+	}
+}

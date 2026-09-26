@@ -1,0 +1,7 @@
+state = {
+	id = 1
+	name = "STATE_1"
+	manpower=1000
+}
+# A stray closing brace: this file does not parse and is left as it is.
+}

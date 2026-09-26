@@ -31,69 +31,56 @@
     reason = "Mitigates excessive and sometimes conflicting warnings from `clippy::restriction`."
 )]
 
+mod cst;
+mod field_order;
+mod files;
+mod game;
+mod inline;
+mod keys;
+mod localisation;
+mod pipeline;
+mod redundant;
+mod report;
+mod schema;
 mod sort;
+mod timings;
+mod version;
 
 use clap::Parser;
-use keyvalues_parser::{Value as VdfValue, Vdf};
+use files::ScriptFile;
+use localisation::LocFile;
 use miette::{Diagnostic, NamedSource, SourceSpan};
-use petgraph::graph::DiGraph;
+use pipeline::{Outcome, Settings, WriteFailure};
 use rayon::prelude::*;
-use serde_json::{Map, Value as JsonValue};
-use std::collections::BTreeMap;
-use std::collections::BTreeSet;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::fs::OpenOptions;
-use std::fs::read_to_string;
-use std::io::{BufRead as _, BufReader, Read as _};
-use std::path::Path;
+use report::{FileChange, Verb};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
-use std::time::SystemTime;
-use walkdir::DirEntry;
 
-/// Max number of diagnostics to print before truncating with ⋮.
+/// Max number of diagnostics of each lint to print before truncating with ⋮.
 const MAX_MISSING: u64 = 10;
 
-const DEFAULT_CACHE_DIR: &str = ".hearty-cache";
-/// Maximum bytes to read when downloading steamcmd (32 MiB).
-const STEAMCMD_DOWNLOAD_MAX: u64 = 32 * 1_024 * 1_024;
-
-/// HOI4 event block types whose fields require localisation.
-const EVENT_TYPES: &[&str] = &[
-    "country_event",
-    "news_event",
-    "operative_leader_event",
-    "state_event",
-    "unit_leader_event",
-];
-
-const HOI4_ID: &str = "394360";
-/// Cache file name written inside the cache directory.
-const HOI4_CACHE_FILE: &str = "hoi4-version-cache.json";
-/// Maximum age of the on-disk cache before steamcmd is re-invoked (86 400 s = 24 h).
-const HOI4_CACHE_MAX_AGE_SECS: u64 = 86_400;
+/// mimalloc copes far better than the system allocator with every core
+/// allocating at once, as the script pass does.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[derive(Debug, thiserror::Error)]
 enum AppError {
-    #[error("no files were processed (empty walk)")]
-    EmptyWalk,
+    #[error("failed to write the flamegraph: {0}")]
+    Flamegraph(std::io::Error),
     #[error("formatting check failed: one or more files would be reformatted")]
     FormatDrift,
-    #[error("missing localisations found")]
-    MissingLocalisations,
+    #[error("lint found {0} problem(s)")]
+    LintFindings(u64),
     #[error("{0} is not a mod directory (no descriptor.mod found)")]
     NotModDir(std::path::PathBuf),
     #[error("failed to render diagnostic: {0}")]
     ReportRender(#[from] std::fmt::Error),
-    #[error("walk processing failed")]
-    WalkFailed,
+    #[error("failed to write {0} file(s)")]
+    WriteFailed(usize),
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("unknown language: {0}")]
-struct LanguageError(String);
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, clap::ValueEnum, PartialOrd, Ord)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, clap::ValueEnum, PartialOrd, Ord)]
 #[clap(rename_all = "snake_case")]
 enum Language {
     BrazilianPortuguese,
@@ -108,14 +95,9 @@ enum Language {
     Spanish,
 }
 
-impl std::fmt::Display for Language {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
-
 impl Language {
-    fn as_str(&self) -> &'static str {
+    /// The language's name in localisation file names (`*l_<name>.yml`).
+    const fn as_str(self) -> &'static str {
         match self {
             Self::BrazilianPortuguese => "braz_por",
             Self::Chinese => "simp_chinese",
@@ -127,32 +109,6 @@ impl Language {
             Self::Polish => "polish",
             Self::Russian => "russian",
             Self::Spanish => "spanish",
-        }
-    }
-}
-
-impl PartialEq<str> for Language {
-    fn eq(&self, other: &str) -> bool {
-        self.as_str() == other
-    }
-}
-
-impl TryFrom<&str> for Language {
-    type Error = LanguageError;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "braz_por" => Ok(Self::BrazilianPortuguese),
-            "simp_chinese" => Ok(Self::Chinese),
-            "english" => Ok(Self::English),
-            "french" => Ok(Self::French),
-            "german" => Ok(Self::German),
-            "japanese" => Ok(Self::Japanese),
-            "korean" => Ok(Self::Korean),
-            "polish" => Ok(Self::Polish),
-            "russian" => Ok(Self::Russian),
-            "spanish" => Ok(Self::Spanish),
-            _ => Err(LanguageError(value.to_owned())),
         }
     }
 }
@@ -171,9 +127,26 @@ struct Args {
     #[arg(long)]
     check: bool,
 
+    /// Automatically fix lint findings that support it (e.g. remove fields
+    /// set to their default value).
+    #[arg(long)]
+    fix: bool,
+
+    /// Write an SVG flamegraph of where the run's time went to FILE: each
+    /// frame's width is the time threads spent in that part (see --timings).
+    #[arg(long, value_name = "FILE")]
+    flamegraph: Option<std::path::PathBuf>,
+
     /// Apply formatting across all supported file types.
     #[arg(long)]
     format: bool,
+
+    /// Hearts of Iron IV's folder. The lint counts the localisation keys
+    /// the base game defines as defined, since a mod may use them. Defaults
+    /// to HEARTY_GAME_DIR, else the game's folder in a Steam library; an
+    /// empty value leaves the base game out.
+    #[arg(long, value_name = "DIR")]
+    game_dir: Option<std::path::PathBuf>,
 
     /// Languages to check. May be repeated: --lang english --lang german.
     /// Defaults to english if neither --lang nor --all is given.
@@ -184,25 +157,47 @@ struct Args {
     #[arg(long)]
     lint: bool,
 
+    /// Maximum line width (tabs count as 4 columns) up to which formatting
+    /// joins a short block onto one line.
+    #[arg(long, default_value_t = 100, value_name = "COLUMNS")]
+    max_width: usize,
+
     /// Path to the mod directory. Defaults to the current directory.
     #[arg(default_value = ".")]
     path: std::path::PathBuf,
+
+    /// Print a breakdown of where the run's time went to stderr: for each
+    /// part (action, file, formatter rule, parse, lint step), the time
+    /// threads spent in it summed over threads, its calls and its share.
+    #[arg(long)]
+    timings: bool,
 }
 
 impl Args {
-    /// Returns `(lint, format, check)` after applying the defaulting rule: if
-    /// no action flag is set, `--lint` is implicitly enabled; otherwise only
-    /// the explicitly set flags are enabled.
-    fn actions(&self) -> (bool, bool, bool) {
-        if self.lint || self.format || self.check {
-            (self.lint, self.format, self.check)
+    /// Returns the actions to run after applying the defaulting rule: if no
+    /// action flag is set, `--lint` is implicitly enabled; otherwise only the
+    /// explicitly set flags are enabled.
+    const fn actions(&self) -> Actions {
+        if self.lint || self.format || self.check || self.fix {
+            Actions {
+                check: self.check,
+                fix: self.fix,
+                format: self.format,
+                lint: self.lint,
+            }
         } else {
-            (true, false, false)
+            Actions {
+                check: false,
+                fix: false,
+                format: false,
+                lint: true,
+            }
         }
     }
 
+    /// The languages to check, sorted and without repeats.
     fn active_languages(&self) -> Vec<Language> {
-        if self.all {
+        let mut languages = if self.all {
             vec![
                 Language::BrazilianPortuguese,
                 Language::Chinese,
@@ -219,7 +214,10 @@ impl Args {
             vec![Language::English]
         } else {
             self.lang.clone()
-        }
+        };
+        languages.sort_unstable();
+        languages.dedup();
+        languages
     }
 }
 
@@ -241,86 +239,65 @@ struct MissingLocalisation {
 
 impl std::error::Error for MissingLocalisation {}
 
-/// duplicate key "{key}" in descriptor.mod.
+/// `{text}` has no effect: {explanation}.
 #[derive(displaydoc::Display, Debug, Diagnostic)]
 #[diagnostic(severity(warning))]
-struct DuplicateDescriptorKey {
-    key: String,
-    #[label("duplicate key")]
+struct RedundantField {
+    /// Why the field has no effect.
+    explanation: &'static str,
+    #[help]
+    help: Option<&'static str>,
+    #[label("redundant")]
     span: SourceSpan,
     #[source_code]
     src: NamedSource<Arc<str>>,
+    /// The field as written, whitespace collapsed.
+    text: String,
 }
 
-impl std::error::Error for DuplicateDescriptorKey {}
+impl std::error::Error for RedundantField {}
 
-/// descriptor.mod supported_version "{supported_version}" does not match latest HOI4 {latest_version}.
-#[derive(displaydoc::Display, Debug, Diagnostic)]
-#[diagnostic(severity(warning))]
-struct DescriptorVersionMismatch {
-    latest_version: String,
-    #[label("unsupported version")]
-    span: SourceSpan,
-    #[source_code]
-    src: NamedSource<Arc<str>>,
-    supported_version: String,
-}
-
-impl std::error::Error for DescriptorVersionMismatch {}
-
-#[derive(Debug, Clone)]
-struct State {
-    args: Args,
-    keys: BTreeMap<Language, BTreeSet<String>>,
-    things: BTreeMap<String, (std::path::PathBuf, usize)>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FormatMode {
-    Check,
-    Write,
-}
-
-/// Lexicographically-ordered piece of a natural-sort key. Variant order
-/// (`Number < Text`) is load-bearing: ASCII digits sort before letters, and
-/// the derived `Ord` compares variants by declaration position.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-enum NaturalPart {
-    Number(u64),
-    Text(String),
-}
-
-/// Splits a string into a key that orders `germany.2` before `germany.10`.
+/// Which actions a run performs; see [`Args::actions`].
+#[derive(Debug, Clone, Copy)]
 #[expect(
-    clippy::indexing_slicing,
-    reason = "every bytes[i] / bytes[start..i] access is guarded by an explicit i < bytes.len() check"
+    clippy::struct_excessive_bools,
+    reason = "fields are independent CLI actions, not a state machine"
 )]
-fn natural_key(s: &str) -> Vec<NaturalPart> {
-    let bytes = s.as_bytes();
-    let mut parts: Vec<NaturalPart> = Vec::new();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i].is_ascii_digit() {
-            let mut num: u64 = 0;
-            while i < bytes.len() && bytes[i].is_ascii_digit() {
-                num = num
-                    .saturating_mul(10)
-                    .saturating_add(u64::from(bytes[i] - b'0'));
-                i += 1;
-            }
-            parts.push(NaturalPart::Number(num));
-        } else {
-            let start = i;
-            while i < bytes.len() && !bytes[i].is_ascii_digit() {
-                i += 1;
-            }
-            parts.push(NaturalPart::Text(
-                String::from_utf8_lossy(&bytes[start..i]).into_owned(),
-            ));
-        }
-    }
-    parts
+struct Actions {
+    check: bool,
+    fix: bool,
+    format: bool,
+    lint: bool,
 }
+
+/// What processing one file of the pass produced.
+#[derive(Debug, Default)]
+enum Done {
+    /// The keys a localisation file defines.
+    Localisation(Vec<Box<str>>),
+    #[default]
+    Nothing,
+    Script(Box<Outcome>),
+}
+
+/// What the lint needs besides the script pass's outcomes.
+struct LintInputs<'run> {
+    /// The keys each file of `localisation` defines.
+    defined: Vec<Vec<Box<str>>>,
+    /// The base game's folder, if found.
+    game: Option<std::path::PathBuf>,
+    /// The checked languages.
+    languages: &'run [Language],
+    /// The localisation files of the checked languages, the mod's and then
+    /// the base game's.
+    localisation: &'run [LocFile],
+    /// The version check of `descriptor.mod`, running on its own thread.
+    version: std::thread::JoinHandle<version::Report>,
+}
+
+/// A missing localisation to print: the key, the file defining it (an index
+/// into the script files), where, and the languages it is missing from.
+type MissingKey<'run> = (&'run str, usize, Option<cst::Span>, String);
 
 fn fmt_commas(n: u64) -> String {
     let digits = n.to_string();
@@ -334,1236 +311,420 @@ fn fmt_commas(n: u64) -> String {
     out.chars().rev().collect()
 }
 
-fn main() -> Result<(), String> {
-    inner_main().map_err(|err| format!("{err}"))
-}
-
 fn inner_main() -> Result<(), AppError> {
     let start = std::time::Instant::now();
     let args = Args::parse();
-    let (do_lint, do_format, do_check) = args.actions();
-
-    if do_format {
-        format(&args, FormatMode::Write);
-    }
-
-    let drift = if do_check {
-        format(&args, FormatMode::Check)
+    // Only a profiled run installs a subscriber: without one, every span
+    // callsite is disabled and costs next to nothing.
+    let profiler = if args.timings || args.flamegraph.is_some() {
+        timings::Profiler::install(start)
     } else {
-        false
+        None
     };
-
-    if do_lint {
-        lint(&args)?;
-    }
-
-    println!("Finished in {:.2?}.", start.elapsed());
-
-    if drift {
-        return Err(AppError::FormatDrift);
-    }
-    Ok(())
+    let result = run(&args, start);
+    // Report timings even when the actions found problems, as a lint run
+    // with findings is still worth profiling; the actions' error wins.
+    let reported = profiler.map_or(Ok(()), |profiler| {
+        profiler
+            .finish(args.timings, args.flamegraph.as_deref())
+            .map_err(AppError::Flamegraph)
+    });
+    result.and(reported)
 }
 
-fn format(args: &Args, mode: FormatMode) -> bool {
-    // 1. Focus files: sort focuses within each tree breadth-first; sort
-    //    sub-trees by file order of their roots.
-    // 2. Event files: sort top-level events so weakly-connected subtrees
-    //    stay grouped, with subtree order determined by the natural-
-    //    alphabetical order of each subtree's root event id.
-    let national_focus_dir = args.path.join("common").join("national_focus");
-    let events_dir = args.path.join("events");
-    let drift = std::sync::atomic::AtomicBool::new(false);
-    walkdir::WalkDir::new(&args.path)
-        .into_iter()
-        .par_bridge()
-        .for_each(|dir_res| {
-            let Ok(dir) = dir_res else {
-                return;
-            };
-            let path = dir.path();
-            let parent = path.parent();
-            let changed = if parent == Some(national_focus_dir.as_path()) {
-                format_focus_file(path, mode)
-            } else if parent == Some(events_dir.as_path()) {
-                format_event_file(path, mode)
-            } else {
-                false
-            };
-            if changed {
-                drift.store(true, std::sync::atomic::Ordering::Relaxed);
-            }
-        });
-    drift.into_inner()
-}
+/// Prints the lint's findings: `descriptor.mod`'s version check, missing
+/// localisations and redundant fields. `report` is the span of the report.
+fn lint(
+    files: &[ScriptFile],
+    outcomes: &[Outcome],
+    inputs: LintInputs<'_>,
+    report: &tracing::Span,
+) -> Result<(), AppError> {
+    // Joined outside any span: waiting for the check is not work.
+    if let Ok(version) = inputs.version.join() {
+        print!("{}", version.stdout);
+        eprint!("{}", version.stderr);
+    }
 
-fn format_focus_file(path: &Path, mode: FormatMode) -> bool {
-    let Ok(string) = read_to_string(path) else {
-        return false;
-    };
-
-    // Collect ordered focus IDs across all focus_trees in the file. The tape
-    // borrow is scoped so `string` is free to use for rewriting afterward.
-    let all_ordered_ids: Vec<String> = {
-        let Ok(tape) = jomini::TextTape::from_slice(string.as_bytes()) else {
-            return false;
-        };
-        let reader = tape.windows1252_reader();
-        let mut ids: Vec<String> = Vec::new();
-
-        for (focus_tree_key, _, focus_tree_value) in reader.fields() {
-            if focus_tree_key.read_str() != "focus_tree" {
-                continue;
-            }
-            let Ok(tree) = focus_tree_value.read_object() else {
-                continue;
-            };
-
-            // Focus IDs in file order, deduplicated. File order is load-bearing:
-            // it becomes the node-index that `priority_toposort` uses as its
-            // stable tie-break, so focuses stay in their existing order except
-            // where a relative_position/prerequisite edge forces a move. This
-            // both minimises churn and makes re-formatting a fixed point.
-            let mut node_ids: Vec<String> = Vec::new();
-            let mut seen_ids: HashSet<String> = HashSet::new();
-            let mut relative_position_edges = Vec::new();
-            let mut prerequisite_edges = Vec::new();
-
-            for (tree_key, _, tree_value) in tree.fields() {
-                if tree_key.read_str() != "focus" {
-                    continue;
-                }
-                let Ok(focus) = tree_value.read_object() else {
-                    continue;
-                };
-
-                let mut focus_id: Option<String> = None;
-                let mut focus_prerequisites = Vec::new();
-                let mut focus_relative_positions = None;
-                for (focus_key, _, focus_value) in focus.fields() {
-                    if focus_key.read_str() == "id"
-                        && let Ok(key_str) = focus_value.read_string()
-                    {
-                        focus_id = Some(key_str);
-                    } else if focus_key.read_str() == "prerequisite"
-                        && let Ok(preq) = focus_value.read_object()
-                    {
-                        for (preq_key, _, preq_value) in preq.fields() {
-                            if preq_key.read_str() == "focus"
-                                && let Ok(preq_str) = preq_value.read_string()
-                            {
-                                focus_prerequisites.push(preq_str);
-                            }
-                        }
-                    } else if focus_key.read_str() == "relative_position_id"
-                        && let Ok(relative) = focus_value.read_string()
-                    {
-                        focus_relative_positions = Some(relative);
-                    }
-                }
-                let Some(a) = focus_id else {
-                    continue;
-                };
-                if let Some(relative_position) = focus_relative_positions {
-                    relative_position_edges.push((relative_position, a.clone()));
-                }
-                if seen_ids.insert(a.clone()) {
-                    node_ids.push(a.clone());
-                }
-                prerequisite_edges.extend(focus_prerequisites.into_iter().map(|b| (b, a.clone())));
-            }
-
-            let mut relative_position_graph = DiGraph::<String, ()>::new();
-            let mut prerequisite_graph = DiGraph::<String, ()>::new();
-            let node_map: HashMap<String, _> = node_ids
+    // The keys the scripts use, each with the file (in path order) and
+    // place that first defines it: every use in path order, then source
+    // order, stably sorted by key, keeping each key's first use. (A serial
+    // `BTreeMap` of the ~70k keys of a large mod took a tenth of a lint.)
+    let mut things: Vec<(&str, usize, Option<cst::Span>)> = outcomes
+        .iter()
+        .enumerate()
+        .flat_map(|(index, outcome)| {
+            outcome
+                .keys
                 .iter()
-                .map(|n| {
-                    (
-                        n.clone(),
-                        (
-                            relative_position_graph.add_node(n.clone()),
-                            prerequisite_graph.add_node(n.clone()),
-                        ),
-                    )
-                })
-                .collect();
-
-            // Both edge sets are enforced by the union in `priority_toposort`;
-            // they are kept in separate graphs only to mirror the event caller's
-            // two-graph signature.
-            for (a, b) in relative_position_edges {
-                if let (Some(na), Some(nb)) = (node_map.get(&a), node_map.get(&b)) {
-                    relative_position_graph.add_edge(na.0, nb.0, ());
-                }
-            }
-            for (a, b) in prerequisite_edges {
-                if let (Some(na), Some(nb)) = (node_map.get(&a), node_map.get(&b)) {
-                    prerequisite_graph.add_edge(na.1, nb.1, ());
-                }
-            }
-            let Ok(sorted) = sort::priority_toposort(&relative_position_graph, &prerequisite_graph)
-            else {
-                continue;
-            };
-
-            ids.extend(sorted);
-        }
-
-        ids
-    };
-
-    if all_ordered_ids.is_empty() {
-        return false;
-    }
-    let new_content = reorder_focus_blocks(&string, &all_ordered_ids);
-    if new_content == string {
-        return false;
-    }
-    if mode == FormatMode::Write {
-        drop(std::fs::write(path, new_content.as_bytes()));
-    }
-    true
-}
-
-fn format_event_file(path: &Path, mode: FormatMode) -> bool {
-    let Ok(string) = read_to_string(path) else {
-        return false;
-    };
-
-    // (event_id, ids of events this one triggers). The tape borrow is
-    // scoped so `string` is free for rewriting afterward.
-    let events: Vec<(String, Vec<String>)> = {
-        let Ok(tape) = jomini::TextTape::from_slice(string.as_bytes()) else {
-            return false;
-        };
-        let reader = tape.windows1252_reader();
-        let mut events: Vec<(String, Vec<String>)> = Vec::new();
-
-        for (key, _, value) in reader.fields() {
-            if !EVENT_TYPES.contains(&key.read_str().as_ref()) {
-                continue;
-            }
-            let Ok(body) = value.read_object() else {
-                continue;
-            };
-
-            let mut event_id: Option<String> = None;
-            let mut triggers: Vec<String> = Vec::new();
-            for (field_key, _, field_value) in body.fields() {
-                let field_key_str = field_key.read_str();
-                if field_key_str == "id" {
-                    if let Ok(id) = field_value.read_string() {
-                        event_id = Some(id);
-                    }
-                } else if EVENT_TYPES.contains(&field_key_str.as_ref()) {
-                    collect_trigger_target(&field_value, &mut triggers);
-                } else if let Ok(nested) = field_value.read_object() {
-                    scan_event_triggers(&nested, &mut triggers);
-                }
-            }
-
-            if let Some(id) = event_id {
-                events.push((id, triggers));
-            }
-        }
-        events
-    };
-
-    if events.is_empty() {
-        return false;
-    }
-
-    // `priority_toposort` is a stable topological sort that breaks ties by
-    // node-index (insertion order), so insert nodes in ascending natural-sort
-    // order. Each weakly-connected subtree is then emitted in order of its
-    // natural-alphabetically-earliest event id, with natural order as the
-    // tie-break within a subtree.
-    let mut sorted_ids: Vec<String> = events.iter().map(|(id, _)| id.clone()).collect();
-    sorted_ids.sort_by_key(|id| natural_key(id));
-
-    let mut graph = DiGraph::<String, ()>::new();
-    let mut node_map: HashMap<String, _> = HashMap::new();
-    for id in &sorted_ids {
-        let idx = graph.add_node(id.clone());
-        node_map.insert(id.clone(), idx);
-    }
-    for (id, triggers) in &events {
-        let Some(&from) = node_map.get(id) else {
-            continue;
-        };
-        for t in triggers {
-            if let Some(&to) = node_map.get(t) {
-                graph.add_edge(from, to, ());
-            }
-        }
-    }
-
-    // Events have a single edge type, so pass the trigger graph as both
-    // union inputs; insertion order (natural sort, above) is the tie-break.
-    let Ok(ordered) = sort::priority_toposort(&graph, &graph) else {
-        return false;
-    };
-
-    let new_content = reorder_event_blocks(&string, &ordered);
-    if new_content == string {
-        return false;
-    }
-    if mode == FormatMode::Write {
-        drop(std::fs::write(path, new_content.as_bytes()));
-    }
-    true
-}
-
-/// Walks a value's nested objects, recording any `EVENT_TYPES = ...` trigger
-/// found. Scalars and arrays are skipped — only object-shaped values can
-/// host triggers.
-fn scan_event_triggers<E>(obj: &jomini::text::ObjectReader<'_, '_, E>, out: &mut Vec<String>)
-where
-    E: jomini::Encoding + Clone,
-{
-    for (key, _, value) in obj.fields() {
-        let key_str = key.read_str();
-        if EVENT_TYPES.contains(&key_str.as_ref()) {
-            collect_trigger_target(&value, out);
-        } else if let Ok(nested) = value.read_object() {
-            scan_event_triggers(&nested, out);
-        }
-    }
-}
-
-/// Extracts the target event id from `<event_type> = { id = X ... }` or the
-/// shorthand `<event_type> = X` form.
-fn collect_trigger_target<E>(value: &jomini::text::ValueReader<'_, '_, E>, out: &mut Vec<String>)
-where
-    E: jomini::Encoding + Clone,
-{
-    if let Ok(trigger_obj) = value.read_object() {
-        for (k, _, v) in trigger_obj.fields() {
-            if k.read_str() == "id"
-                && let Ok(id) = v.read_string()
-            {
-                out.push(id);
-            }
-        }
-    } else if let Ok(id) = value.read_string() {
-        out.push(id);
-    }
-}
-
-// Handle linting (e.g. like `cargo clippy`).
-fn lint(args: &Args) -> Result<(), AppError> {
-    let descriptor = read_to_string(args.path.join("descriptor.mod"))
-        .map_err(|_e| AppError::NotModDir(args.path.clone()))?;
-    run_steamcmd_version_check(&descriptor);
-
-    let walker = walkdir::WalkDir::new(&args.path);
-    let State { args, keys, things } = walker
-        .into_iter()
-        .par_bridge()
-        .try_fold(
-            || State {
-                args: args.clone(),
-                keys: BTreeMap::new(),
-                things: BTreeMap::new(),
-            },
-            iter_entry,
-        )
-        .try_reduce_with(
-            |State {
-                 args,
-                 mut keys,
-                 mut things,
-             },
-             State {
-                 keys: item_keys,
-                 things: item_things,
-                 ..
-             }| {
-                for (lang, lang_keys) in item_keys {
-                    if let Some(existing) = keys.get_mut(&lang) {
-                        existing.extend(lang_keys);
-                    } else {
-                        keys.insert(lang, lang_keys);
-                    }
-                }
-                things.extend(item_things);
-                Ok(State { args, keys, things })
-            },
-        )
-        .ok_or(AppError::EmptyWalk)?
-        .map_err(|()| AppError::WalkFailed)?;
-
-    let active: BTreeSet<Language> = args.active_languages().into_iter().collect();
-    let mut keys: BTreeMap<Language, BTreeSet<String>> = keys
-        .into_iter()
-        .filter(|(lang, _)| active.contains(lang))
+                .map(move |used| (used.key.as_str(), index, used.span))
+        })
         .collect();
-    // Ensure every active language has an entry. If a mod has no localisation
-    // files for a language, that language won't appear in `keys` at all, which
-    // would cause the missing-check loop to silently skip it.
-    for lang in &active {
-        keys.entry(lang.clone()).or_default();
-    }
-
-    let handler = miette::GraphicalReportHandler::new();
-    let mut file_cache: BTreeMap<std::path::PathBuf, Arc<str>> = BTreeMap::new();
-    let mut missing = 0u64;
-    let mut printed = 0u64;
-    for (thing, (source, offset)) in &things {
-        let missing_langs: Vec<String> = keys
-            .iter()
-            .filter(|(_, lang_keys)| !lang_keys.contains(thing))
-            .map(|(lang, _)| lang.to_string())
-            .collect();
-        if missing_langs.is_empty() {
-            continue;
-        }
-        missing += 1;
-        if printed >= MAX_MISSING {
-            continue;
-        }
-        printed += 1;
-        let content = file_cache.entry(source.clone()).or_insert_with(|| {
-            let text = read_to_string(source).unwrap_or_default();
-            Arc::from(text.as_str())
-        });
-        let diag = MissingLocalisation {
-            key: thing.clone(),
-            missing_langs: missing_langs.join(", "),
-            span: (*offset, thing.len()).into(),
-            src: NamedSource::new(source.display().to_string(), Arc::clone(content)),
-        };
-        let mut out = String::new();
-        handler.render_report(&mut out, &diag)?;
-        eprint!("{out}");
-    }
-    if missing > MAX_MISSING {
-        eprintln!("⋮ ({} more not shown)", missing - MAX_MISSING);
-    }
-
-    println!(
-        "\nFound {}/{} missing localisations.",
-        fmt_commas(missing),
-        fmt_commas(things.len() as u64)
+    things.par_sort_by(|a, b| a.0.cmp(b.0));
+    things.dedup_by(|later, first| later.0 == first.0);
+    let wanted: Vec<&str> = things.iter().map(|&(key, ..)| key).collect();
+    let masks = localisation::defined(
+        &wanted,
+        inputs.localisation,
+        &inputs.defined,
+        &tracing::info_span!(parent: report, "missing keys"),
     );
+    let mut missing = 0_u64;
+    let mut shown: Vec<MissingKey<'_>> = Vec::new();
+    report.in_scope(|| {
+        let _span = tracing::info_span!("missing keys").entered();
+        for (&(key, file, span), mask) in things.iter().zip(masks) {
+            let missing_langs: Vec<&str> = inputs
+                .languages
+                .iter()
+                .enumerate()
+                .filter(|&(bit, _)| (mask >> bit) & 1 == 0)
+                .map(|(_, language)| language.as_str())
+                .collect();
+            if missing_langs.is_empty() {
+                continue;
+            }
+            missing += 1;
+            if missing <= MAX_MISSING {
+                shown.push((key, file, span, missing_langs.join(", ")));
+            }
+        }
+    });
 
-    if missing > 0 {
-        Err(AppError::MissingLocalisations)
+    let redundant: u64 = outcomes
+        .iter()
+        .map(|outcome| outcome.redundant.len() as u64)
+        .sum();
+    let fixable = outcomes
+        .iter()
+        .flat_map(|outcome| &outcome.redundant)
+        .filter(|finding| finding.fix.is_some())
+        .count() as u64;
+    let shown_redundant: Vec<(usize, &redundant::Finding)> = outcomes
+        .iter()
+        .enumerate()
+        .flat_map(|(index, outcome)| {
+            outcome
+                .redundant
+                .iter()
+                .map(move |finding| (index, finding))
+        })
+        .take(usize::try_from(MAX_MISSING).unwrap_or(usize::MAX))
+        .collect();
+
+    // Only the files of the diagnostics printed are kept, read again here.
+    let wanted: BTreeSet<usize> = shown
+        .iter()
+        .map(|&(_, file, ..)| file)
+        .chain(shown_redundant.iter().map(|&(file, _)| file))
+        .collect();
+    let texts: BTreeMap<usize, Arc<str>> = wanted
+        .into_par_iter()
+        .filter_map(|index| {
+            let file = files.get(index)?;
+            let _span = tracing::info_span!(parent: report, "read").entered();
+            let text = std::fs::read_to_string(&file.path).unwrap_or_default();
+            Some((index, Arc::from(text)))
+        })
+        .collect();
+
+    report.in_scope(|| {
+        let handler = miette::GraphicalReportHandler::new();
+        tracing::info_span!("missing keys").in_scope(|| {
+            for (key, index, span, missing_langs) in shown {
+                let (Some(file), Some(text)) = (files.get(index), texts.get(&index)) else {
+                    continue;
+                };
+                let diag = MissingLocalisation {
+                    key: key.to_owned(),
+                    missing_langs,
+                    span: key_span(text, key, span).into(),
+                    src: NamedSource::new(file.path.display().to_string(), Arc::clone(text)),
+                };
+                let mut out = String::new();
+                handler.render_report(&mut out, &diag)?;
+                eprint!("{out}");
+            }
+            if missing > MAX_MISSING {
+                eprintln!("⋮ ({} more not shown)", missing - MAX_MISSING);
+            }
+            match &inputs.game {
+                Some(game) => println!(
+                    "\nRead {} localisation files of the base game from {}.",
+                    fmt_commas(
+                        inputs
+                            .localisation
+                            .iter()
+                            .filter(|file| file.game)
+                            .count() as u64
+                    ),
+                    game.display()
+                ),
+                None => println!(
+                    "\nThe base game's localisation was not read, so keys only it defines are reported missing (pass --game-dir or set {} to Hearts of Iron IV's folder).",
+                    game::GAME_DIR_VAR
+                ),
+            }
+            println!(
+                "Found {}/{} missing localisations.",
+                fmt_commas(missing),
+                fmt_commas(things.len() as u64)
+            );
+            Ok::<(), AppError>(())
+        })?;
+
+        tracing::info_span!("redundant fields").in_scope(|| {
+            for (index, finding) in shown_redundant {
+                let (Some(file), Some(text)) = (files.get(index), texts.get(&index)) else {
+                    continue;
+                };
+                let span = finding.span;
+                let fits = text.get(span.start..span.end).is_some();
+                let diag = RedundantField {
+                    explanation: finding.explanation,
+                    help: Some(if finding.fix.is_some() {
+                        "remove it, or run `hearty --fix`"
+                    } else {
+                        "remove it (not auto-fixed because a comment would be lost)"
+                    }),
+                    span: if fits {
+                        (span.start, span.end - span.start).into()
+                    } else {
+                        (0, 0).into()
+                    },
+                    src: NamedSource::new(file.relative.display().to_string(), Arc::clone(text)),
+                    text: finding.text.clone(),
+                };
+                let mut out = String::new();
+                handler.render_report(&mut out, &diag)?;
+                eprint!("{out}");
+            }
+            if redundant > MAX_MISSING {
+                eprintln!("⋮ ({} more not shown)", redundant - MAX_MISSING);
+            }
+            println!(
+                "\nFound {} redundant fields ({} fixable with --fix).",
+                fmt_commas(redundant),
+                fmt_commas(fixable)
+            );
+            Ok::<(), AppError>(())
+        })
+    })?;
+
+    // The keys of every localisation file, millions with --all, took tens of
+    // milliseconds to free one by one on this thread; the pool shares that.
+    inputs.defined.into_par_iter().for_each(drop);
+
+    let problems = missing + redundant;
+    if problems > 0 {
+        Err(AppError::LintFindings(problems))
     } else {
         Ok(())
     }
 }
 
-fn iter_entry(
-    State {
-        args,
-        mut keys,
-        mut things,
-    }: State,
-    res: Result<DirEntry, walkdir::Error>,
-) -> Result<State, ()> {
-    let dir = res.map_err(drop)?;
-    let path = dir.path();
-    let prefix = path.file_prefix().ok_or(())?;
-    let string = prefix.to_str().ok_or(())?;
-
-    if let Some(index) = string.rfind("l_")
-        && let Some(key) = string.get(index + 2..)
-        && let Ok(language) = Language::try_from(key)
-    {
-        if let Some((lang, lang_keys)) = load_localisation(language, path) {
-            if let Some(existing) = keys.get_mut(&lang) {
-                existing.extend(lang_keys);
-            } else {
-                keys.insert(lang, lang_keys);
-            }
-        }
-    } else if let Some(parent) = path.parent()
-        && parent == args.path.join("events")
-    {
-        things.extend(read_events(path).unwrap_or_default());
-    } else if let Some(parent) = path.parent()
-        && parent == args.path.join("common").join("national_focus")
-    {
-        things.extend(read_focuses(path).unwrap_or_default());
-    } else if let Some(parent) = path.parent()
-        && parent == args.path.join("common").join("technologies")
-    {
-        things.extend(read_technologies(path).unwrap_or_default());
-    }
-
-    Ok(State { args, keys, things })
-}
-
-fn load_localisation(lang: Language, path: &Path) -> Option<(Language, BTreeSet<String>)> {
-    let mut file = BufReader::new(OpenOptions::new().read(true).open(path).ok()?);
-    file.skip_until(b'\n').ok()?; // skip language header line
-
-    let mut line = String::new();
-    let mut keys = BTreeSet::new();
-    while let Ok(1..) = file.read_line(&mut line) {
-        if let Some(key) = line
-            .trim_start()
-            .split(':')
-            .next()
-            .filter(|s| !s.is_empty())
-        {
-            keys.insert(key.to_owned());
-        }
-        line.clear();
-    }
-
-    Some((lang, keys))
-}
-
-fn find_offset(haystack: &str, needle: &str) -> usize {
-    haystack.find(needle).unwrap_or(0)
-}
-
-fn read_events(path: &Path) -> Option<BTreeMap<String, (std::path::PathBuf, usize)>> {
-    let string = read_to_string(path).ok()?;
-    let tape = jomini::TextTape::from_slice(string.as_bytes()).ok()?;
-    let reader = tape.windows1252_reader();
-    let mut events = BTreeMap::new();
-
-    for (key, _, value) in reader.fields() {
-        if !EVENT_TYPES.contains(&key.read_str().as_ref()) {
-            continue;
-        }
-        let Ok(obj) = value.read_object() else {
-            continue;
-        };
-        for (inner_key, _, inner_value) in obj.fields() {
-            match inner_key.read_str().as_ref() {
-                "title" | "desc" => {
-                    if let Ok(scalar) = inner_value.read_scalar() {
-                        let key_str = scalar.to_string();
-                        let offset = find_offset(&string, &key_str);
-                        events.insert(key_str, (path.to_path_buf(), offset));
-                    }
-                }
-                "option" => {
-                    let Ok(option) = inner_value.read_object() else {
-                        continue;
-                    };
-                    for (opt_key, _, opt_value) in option.fields() {
-                        if opt_key.read_str() == "name"
-                            && let Ok(scalar) = opt_value.read_scalar()
-                        {
-                            let key_str = scalar.to_string();
-                            let offset = find_offset(&string, &key_str);
-                            events.insert(key_str, (path.to_path_buf(), offset));
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
-    Some(events)
-}
-
-fn read_focuses(path: &Path) -> Option<BTreeMap<String, (std::path::PathBuf, usize)>> {
-    let string = read_to_string(path).ok()?;
-    let tape = jomini::TextTape::from_slice(string.as_bytes()).ok()?;
-    let reader = tape.windows1252_reader();
-    let mut focuses = BTreeMap::new();
-
-    for (key, _, value) in reader.fields() {
-        if key.read_str() != "focus_tree" {
-            continue;
-        }
-        let Ok(tree) = value.read_object() else {
-            continue;
-        };
-        for (tree_key, _, tree_value) in tree.fields() {
-            if tree_key.read_str() != "focus" {
-                continue;
-            }
-            let Ok(focus) = tree_value.read_object() else {
-                continue;
-            };
-            for (focus_key, _, focus_value) in focus.fields() {
-                if focus_key.read_str() == "id"
-                    && let Ok(key_str) = focus_value.read_string()
-                {
-                    let offset = find_offset(&string, &key_str);
-                    focuses.insert(key_str, (path.to_path_buf(), offset));
-                }
-            }
-        }
-    }
-
-    Some(focuses)
-}
-
-fn read_technologies(path: &Path) -> Option<BTreeMap<String, (std::path::PathBuf, usize)>> {
-    let string = read_to_string(path).ok()?;
-    let tape = jomini::TextTape::from_slice(string.as_bytes()).ok()?;
-    let reader = tape.windows1252_reader();
-    let mut techs = BTreeMap::new();
-
-    for (key, _, value) in reader.fields() {
-        if key.read_str() != "technologies" {
-            continue;
-        }
-        let Ok(block) = value.read_object() else {
-            continue;
-        };
-        for (tech_key, _, _) in block.fields() {
-            let tech_str = tech_key.read_str();
-            if tech_str.starts_with('@') {
-                continue;
-            }
-            let offset = find_offset(&string, &tech_str);
-            techs.insert(tech_str.into_owned(), (path.to_path_buf(), offset));
-        }
-    }
-
-    Some(techs)
-}
-
-/// Returns the path to the HOI4 version cache file.
-///
-/// The directory is read from the `HEARTY_CACHE_DIR` environment variable when set.
-/// In GitHub Actions, point `actions/cache` at that path (or at `.hearty-cache`) so
-/// the file survives across workflow runs and steamcmd only runs when the cache is stale:
-///
-/// ```yaml
-/// - uses: actions/cache@v4
-///   with:
-///     path: .hearty-cache
-///     key: hoi4-version-cache
-/// ```
-fn cache_path() -> std::path::PathBuf {
-    std::env::var_os("HEARTY_CACHE_DIR")
-        .map_or_else(
-            || std::path::PathBuf::from(DEFAULT_CACHE_DIR),
-            std::path::PathBuf::from,
-        )
-        .join(HOI4_CACHE_FILE)
-}
-
-/// Reads the on-disk cache and returns the HOI4 app data if it is younger than
-/// [`HOI4_CACHE_MAX_AGE_SECS`]. Returns `None` if the cache is missing, corrupt,
-/// or expired.
-fn read_cache() -> Option<serde_json::Value> {
-    let content = read_to_string(cache_path()).ok()?;
-    let cache: serde_json::Value = serde_json::from_str(&content).ok()?;
-    let fetched_at = cache.get("fetched_at_secs")?.as_u64()?;
-    let now = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .ok()?
-        .as_secs();
-    let data = cache.get("data")?;
-    (now.saturating_sub(fetched_at) < HOI4_CACHE_MAX_AGE_SECS).then(|| data.clone())
-}
-
-/// Writes the HOI4 app data and a `fetched_at_secs` Unix timestamp to the cache
-/// file so [`read_cache`] can assess freshness on the next run. Failures are
-/// silently ignored — the cache is best-effort.
-fn write_cache(data: &serde_json::Value) {
-    let path = cache_path();
-    let now_secs = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let payload = serde_json::json!({
-        "fetched_at_secs": now_secs,
-        "data": data,
-    });
-    let Ok(serialized) = serde_json::to_string(&payload) else {
-        return;
-    };
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).unwrap_or_default();
-    }
-    std::fs::write(path, serialized).unwrap_or_default();
-}
-
-/// Path where a downloaded steamcmd binary is cached alongside the version cache.
-fn steamcmd_cache_path() -> std::path::PathBuf {
-    let dir = cache_path().parent().map_or_else(
-        || std::path::PathBuf::from(DEFAULT_CACHE_DIR),
-        std::path::Path::to_path_buf,
-    );
-    #[cfg(windows)]
-    return dir.join("steamcmd.exe");
-    #[cfg(not(windows))]
-    return dir.join("steamcmd.sh");
-}
-
-/// Returns `true` if a `steamcmd` binary is reachable via `PATH`.
-fn steamcmd_in_path() -> bool {
-    #[cfg(windows)]
-    let name = "steamcmd.exe";
-    #[cfg(not(windows))]
-    let name = "steamcmd";
-    std::env::var_os("PATH")
-        .is_some_and(|p| std::env::split_paths(&p).any(|d| d.join(name).exists()))
-}
-
-/// Downloads steamcmd from the Steam CDN into the cache directory and returns
-/// its path. Returns `None` if the download or extraction fails.
-fn download_steamcmd() -> Option<std::path::PathBuf> {
-    let dest = steamcmd_cache_path();
-    let dir = dest.parent()?;
-    std::fs::create_dir_all(dir).ok()?;
-
-    #[cfg(windows)]
-    let url = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip";
-    #[cfg(target_os = "macos")]
-    let url = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_osx.tar.gz";
-    #[cfg(all(not(windows), not(target_os = "macos")))]
-    let url = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz";
-
-    println!("steamcmd not found; downloading to {} ...", dir.display());
-    let mut bytes = Vec::new();
-    ureq::get(url)
-        .call()
-        .ok()?
-        .into_body()
-        .into_with_config()
-        .limit(STEAMCMD_DOWNLOAD_MAX)
-        .reader()
-        .read_to_end(&mut bytes)
-        .ok()?;
-
-    #[cfg(windows)]
-    zip::ZipArchive::new(std::io::Cursor::new(bytes))
-        .ok()?
-        .extract(dir)
-        .ok()?;
-
-    #[cfg(not(windows))]
-    {
-        let gz = flate2::read::GzDecoder::new(std::io::Cursor::new(bytes));
-        tar::Archive::new(gz).unpack(dir).ok()?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755)).ok()?;
-        }
-    }
-
-    dest.exists().then_some(dest)
-}
-
-/// Returns the path to a usable steamcmd binary: system PATH first, then the
-/// cache directory, downloading if neither is present.
-fn resolve_steamcmd() -> Option<std::path::PathBuf> {
-    if steamcmd_in_path() {
-        #[cfg(windows)]
-        return Some(std::path::PathBuf::from("steamcmd.exe"));
-        #[cfg(not(windows))]
-        return Some(std::path::PathBuf::from("steamcmd"));
-    }
-    let cached = steamcmd_cache_path();
-    if cached.exists() {
-        return Some(cached);
-    }
-    download_steamcmd()
-}
-
-fn run_steamcmd_version_check(descriptor: &str) {
-    let Some(steamcmd) = resolve_steamcmd() else {
-        return;
-    };
-    let hoi4_data_opt = read_cache().or_else(|| {
-        let data = std::process::Command::new(&steamcmd)
-            .args(["+login", "anonymous", "+app_info_print", HOI4_ID, "+quit"])
-            .output()
-            .ok()
-            .and_then(|out| {
-                let text = String::from_utf8_lossy(&out.stdout);
-                let start = text.find(&format!("\"{HOI4_ID}\""))?;
-                let end = text.rfind("Unloading Steam API")?;
-                let values = Vdf::from(keyvalues_parser::parse(text.get(start..end)?).ok()?);
-                Some(vdf_to_json(&values))
-            })?;
-        write_cache(&data);
-        Some(data)
-    });
-    if let Some(hoi4_data) = hoi4_data_opt {
-        let _: Option<()> = check_descriptor(descriptor, &hoi4_data);
-    }
-}
-
-fn check_descriptor(string: &str, hoi4_data: &serde_json::Value) -> Option<()> {
-    let branches = hoi4_data
-        .as_object()?
-        .get(HOI4_ID)?
-        .as_object()?
-        .get("depots")?
-        .as_object()?
-        .get("branches")?
-        .as_object()?;
-    let versions = branches
-        .keys()
-        .filter_map(|k| {
-            semver::Version::parse(k).ok().or_else(|| {
-                // HOI4 sometimes uses 4-part versions (e.g. "1.17.3.0"); drop the last component.
-                let trimmed = k.rsplit_once('.')?.0;
-                semver::Version::parse(trimmed).ok()
-            })
-        })
-        .collect::<Vec<_>>();
-    let latest_version = versions.into_iter().max()?;
-
-    let src: Arc<str> = Arc::from(string);
-    let handler = miette::GraphicalReportHandler::new();
-
-    let tape = jomini::TextTape::from_slice(string.as_bytes()).ok()?;
-    let reader = tape.windows1252_reader();
-    let mut fields = HashSet::new();
-    for (key, _, value) in reader.fields() {
-        // Check for duplicate keys.
-        let key = key.read_string();
-        if fields.contains(&key) && key != "replace_path" {
-            let key_str = key.clone();
-            let first_end = string.find(&key_str).map_or(0, |p| p + key_str.len());
-            let offset = string
-                .get(first_end..)
-                .and_then(|s| s.find(&key_str))
-                .map_or(0, |o| o + first_end);
-            let key_len = key_str.len();
-            let diag = DuplicateDescriptorKey {
-                key: key_str,
-                span: (offset, key_len).into(),
-                src: NamedSource::new("descriptor.mod", Arc::clone(&src)),
-            };
-            let mut out = String::new();
-            if handler.render_report(&mut out, &diag).is_ok() {
-                eprint!("{out}");
-            }
-            continue;
-        }
-
-        // Check supported_version field.
-        if key == "supported_version" {
-            let req_str = value.read_string().ok()?;
-            let req = semver::VersionReq::parse(&req_str).ok()?;
-            if !req.matches(&latest_version) {
-                let offset = find_offset(string, &req_str);
-                let req_len = req_str.len();
-                let diag = DescriptorVersionMismatch {
-                    supported_version: req_str,
-                    latest_version: latest_version.to_string(),
-                    span: (offset, req_len).into(),
-                    src: NamedSource::new("descriptor.mod", Arc::clone(&src)),
-                };
-                let mut out = String::new();
-                if handler.render_report(&mut out, &diag).is_ok() {
-                    eprint!("{out}");
-                }
-            }
-        }
-
-        // Track fields for later duplicate key check.
-        fields.insert(key);
-    }
-    Some(())
-}
-
-fn vdf_value_to_json(value: &VdfValue) -> JsonValue {
-    match value {
-        VdfValue::Str(s) => JsonValue::String(s.to_string()),
-        VdfValue::Obj(obj) => {
-            let mut map = Map::new();
-            for (key, values) in obj.iter() {
-                let mut converted: Vec<JsonValue> = values.iter().map(vdf_value_to_json).collect();
-                // VDF allows duplicate keys at the same level, stored as Vec.
-                // Collapse single-element vecs to the bare value; keep arrays for duplicates.
-                let entry = if converted.len() == 1 {
-                    converted.remove(0)
-                } else {
-                    JsonValue::Array(converted)
-                };
-                map.insert(key.to_string(), entry);
-            }
-            JsonValue::Object(map)
-        }
-    }
-}
-
-#[must_use]
-#[inline]
-pub fn vdf_to_json(vdf: &Vdf) -> JsonValue {
-    // Wrap the root key/value into a single-entry object so the top-level
-    // "394360" key is preserved.
-    let mut root = Map::new();
-    root.insert(vdf.key.to_string(), vdf_value_to_json(&vdf.value));
-    JsonValue::Object(root)
-}
-
-/// Rebuilds `content` so that position `i` holds the block whose id is
-/// `ordered_ids[i]`, normalizing every whitespace-only gap between adjacent
-/// blocks to a single blank line. Gaps holding non-whitespace content (a
-/// `focus_tree`/event-type boundary, a `shared_focus` reference, etc.) are kept
-/// verbatim so structural layout survives. Each block carries its own trailing
-/// newline (see `find_focus_blocks`/`find_event_blocks`), so a whitespace-only
-/// gap collapses to exactly one blank line and the rewrite is idempotent.
-///
-/// Returns `content` unchanged if the number of blocks found does not match
-/// `ordered_ids.len()`, or if an ordered id has no matching block (safety
-/// bail-outs for unexpected file shapes).
-#[expect(
-    clippy::string_slice,
-    reason = "indices from find_focus_blocks/find_event_blocks are guaranteed ASCII-boundary positions"
-)]
-fn reorder_blocks(
-    content: &str,
-    blocks: &[(usize, usize, String)],
-    ordered_ids: &[String],
-) -> String {
-    if blocks.len() != ordered_ids.len() {
-        return content.to_owned();
-    }
-    let (Some((first_start, ..)), Some((.., last_end, _))) = (blocks.first(), blocks.last()) else {
-        return content.to_owned();
-    };
-
-    let block_map: HashMap<&str, &str> = blocks
-        .iter()
-        .map(|(start, end, id)| (id.as_str(), &content[*start..*end]))
-        .collect();
-
-    // Preserve the file's existing line-ending style.
-    let newline = if content.contains("\r\n") {
-        "\r\n"
+/// Where to point a missing key's diagnostic in `text`: at its definition if
+/// that is where `span` says, else at its first appearance (or the start of
+/// the file).
+fn key_span(text: &str, key: &str, span: Option<cst::Span>) -> (usize, usize) {
+    let offset = span
+        .filter(|span| text.get(span.start..span.end) == Some(key))
+        .map_or_else(|| text.find(key).unwrap_or(0), |span| span.start);
+    if text.get(offset..offset + key.len()).is_some() {
+        (offset, key.len())
     } else {
-        "\n"
+        (0, 0)
+    }
+}
+
+fn main() -> Result<(), String> {
+    inner_main().map_err(|err| format!("{err}"))
+}
+
+/// Prints the summaries of `--fix`, `--format` and `--check` (as `actions`
+/// asks), and reports every file that could not be written. Returns whether
+/// `--check` found drift, and how many files could not be written.
+fn print_summaries(files: &[ScriptFile], outcomes: &[Outcome], actions: Actions) -> (bool, usize) {
+    let mut write_failures = 0;
+    for (file, outcome) in files.iter().zip(outcomes) {
+        if let Some(failure) = &outcome.write_failure {
+            eprintln!("failed to write {}: {}", file.path.display(), failure.error);
+            write_failures += 1;
+        }
+    }
+    let changes = |change: fn(&Outcome) -> Option<&FileChange>| -> Vec<FileChange> {
+        outcomes.iter().filter_map(change).cloned().collect()
     };
+    // How many files an action changed that could not be written.
+    let unwritten = |lost: fn(&WriteFailure) -> bool| -> usize {
+        outcomes
+            .iter()
+            .filter_map(|outcome| outcome.write_failure.as_ref())
+            .filter(|&failure| lost(failure))
+            .count()
+    };
+    if actions.fix {
+        print!(
+            "{}",
+            report::summary(
+                Verb::Fixed,
+                &changes(|o| o.fixed.as_ref()),
+                unwritten(|failure| failure.fixed)
+            )
+        );
+        let unfixed: usize = outcomes.iter().map(|outcome| outcome.unfixed).sum();
+        if unfixed > 0 {
+            println!(
+                "{} redundant field(s) left in place because removing them would delete a comment; run --lint to see them.",
+                fmt_commas(unfixed as u64)
+            );
+        }
+    }
+    if actions.format {
+        print!(
+            "{}",
+            report::summary(
+                Verb::Formatted,
+                &changes(|o| o.formatted.as_ref()),
+                unwritten(|failure| failure.formatted)
+            )
+        );
+    }
+    let drift = actions.check && {
+        let would_format = changes(|o| o.would_format.as_ref());
+        print!("{}", report::summary(Verb::WouldFormat, &would_format, 0));
+        !would_format.is_empty()
+    };
+    (drift, write_failures)
+}
 
-    let mut result = String::with_capacity(content.len());
-    result.push_str(&content[..*first_start]);
-    for (pos, id) in ordered_ids.iter().enumerate() {
-        let Some(&block) = block_map.get(id.as_str()) else {
-            return content.to_owned();
-        };
-        // Emit the block with exactly one trailing newline. Normalizing here is
-        // what makes the rewrite idempotent: a file's final block usually has no
-        // trailing newline, so without this a block moved out of last place
-        // would only gain its blank-line separator on the *second* run (the lone
-        // newline gets absorbed as the block terminator on re-parse).
-        result.push_str(block.trim_end_matches(['\r', '\n']));
-        result.push_str(newline);
-        // Separator to the next block: one blank line for a whitespace-only
-        // gap, otherwise the original (structural) bytes.
-        if let (Some((.., end, _)), Some((next_start, ..))) = (blocks.get(pos), blocks.get(pos + 1))
-        {
-            let gap = &content[*end..*next_start];
-            if gap.trim().is_empty() {
-                result.push_str(newline);
+/// Runs the actions `args` asks for. Every script file is read once and
+/// taken through the actions in order (fix, format, check, lint) in one
+/// parallel pass, alongside loading the localisation; the results are then
+/// printed in that order.
+fn run(args: &Args, start: std::time::Instant) -> Result<(), AppError> {
+    let actions = args.actions();
+    let languages = args.active_languages();
+    // The lint needs a `descriptor.mod`. Its version check may wait on the
+    // network or steamcmd, so it starts now, on a thread of its own.
+    let descriptor = actions
+        .lint
+        .then(|| std::fs::read_to_string(args.path.join("descriptor.mod")).ok())
+        .flatten();
+    // Without a `descriptor.mod` the lint fails at once, so the files are
+    // only linted with one.
+    let lint_files = descriptor.is_some();
+    // The base game's localisation, minus the folders the mod replaces,
+    // counts as the mod's.
+    let game = lint_files
+        .then(|| game::find(args.game_dir.as_deref()))
+        .flatten()
+        .map(|(dir, _)| dir);
+    let replaced = descriptor
+        .as_deref()
+        .map(game::replaced_folders)
+        .unwrap_or_default();
+    let version = descriptor.map(version::spawn);
+
+    let found = tracing::info_span!("find files");
+    let (files, localisation_files) = rayon::join(
+        || files::scripts(&args.path, &found),
+        || {
+            if lint_files {
+                let mut files = localisation::files(&args.path, &languages, &found);
+                if let Some(game) = &game {
+                    files.extend(localisation::game_files(
+                        game, &languages, &replaced, &found,
+                    ));
+                }
+                files
             } else {
-                result.push_str(gap);
+                Vec::new()
             }
-        }
-    }
-    result.push_str(&content[*last_end..]);
-    result
-}
+        },
+    );
+    drop(found);
 
-/// Reorders `focus = { ... }` blocks in `content` so position `i` holds the
-/// block whose ID is `ordered_ids[i]`. See [`reorder_blocks`].
-fn reorder_focus_blocks(content: &str, ordered_ids: &[String]) -> String {
-    reorder_blocks(content, &find_focus_blocks(content), ordered_ids)
-}
-
-/// Scans `content` for `focus = { ... }` blocks, returning `(start, end, id)`
-/// tuples where the range includes any immediately preceding comment lines.
-///
-/// All byte indices produced here land on ASCII character boundaries (the only
-/// meaningful chars are single-byte tokens), so callers may slice `content`
-/// with them safely.
-#[expect(
-    clippy::indexing_slicing,
-    clippy::string_slice,
-    reason = "all byte accesses are guarded by i < bytes.len() checks; \
-              string slice indices are derived from ASCII token scanning so they \
-              are guaranteed to fall on char boundaries"
-)]
-fn find_focus_blocks(content: &str) -> Vec<(usize, usize, String)> {
-    let bytes = content.as_bytes();
-    let mut blocks: Vec<(usize, usize, String)> = Vec::new();
-    let mut i = 0;
-    while i < bytes.len() {
-        // Skip line comments.
-        if bytes[i] == b'#' {
-            while i < bytes.len() && bytes[i] != b'\n' {
-                i += 1;
-            }
-            continue;
-        }
-        // Skip quoted strings.
-        if bytes[i] == b'"' {
-            i += 1;
-            while i < bytes.len() && bytes[i] != b'"' {
-                i += 1;
-            }
-            if i < bytes.len() {
-                i += 1;
-            }
-            continue;
-        }
-        // Match `focus` keyword preceded by whitespace (avoids `focus_tree`, etc.).
-        let preceded_by_ws = i == 0 || bytes[i - 1].is_ascii_whitespace();
-        if preceded_by_ws && bytes[i..].starts_with(b"focus") {
-            let mut j = i + 5;
-            while j < bytes.len() && bytes[j].is_ascii_whitespace() {
-                j += 1;
-            }
-            if j < bytes.len() && bytes[j] == b'=' {
-                j += 1;
-                while j < bytes.len() && bytes[j].is_ascii_whitespace() {
-                    j += 1;
-                }
-                if j < bytes.len() && bytes[j] == b'{' {
-                    // Start the block at the beginning of the `focus` line
-                    // (to include its indentation), then extend backward over
-                    // any immediately preceding comment lines so they travel
-                    // with the focus they introduce. Blank lines stop the scan
-                    // so they remain as separators between blocks.
-                    let line_start = content[..i].rfind('\n').map_or(0, |p| p + 1);
-                    let mut block_start = line_start;
-                    let mut scan_pos = line_start;
-                    loop {
-                        if scan_pos == 0 {
-                            break;
-                        }
-                        let prev_nl = scan_pos - 1;
-                        let prev_line_start = content[..prev_nl].rfind('\n').map_or(0, |p| p + 1);
-                        if content[prev_line_start..prev_nl].trim().starts_with('#') {
-                            block_start = prev_line_start;
-                            scan_pos = prev_line_start;
-                        } else {
-                            break;
-                        }
-                    }
-                    // Brace-match to find the closing `}`.
-                    let mut depth: u32 = 0;
-                    let mut m = j;
-                    loop {
-                        if m >= bytes.len() {
-                            break;
-                        }
-                        match bytes[m] {
-                            b'#' => {
-                                while m < bytes.len() && bytes[m] != b'\n' {
-                                    m += 1;
-                                }
-                            }
-                            b'"' => {
-                                m += 1;
-                                while m < bytes.len() && bytes[m] != b'"' {
-                                    m += 1;
-                                }
-                                if m < bytes.len() {
-                                    m += 1;
-                                }
-                            }
-                            b'{' => {
-                                depth += 1;
-                                m += 1;
-                            }
-                            b'}' => {
-                                depth -= 1;
-                                m += 1;
-                                if depth == 0 {
-                                    break;
-                                }
-                            }
-                            _ => {
-                                m += 1;
-                            }
-                        }
-                    }
-                    // Consume the line ending that follows the closing brace
-                    // (LF or CRLF) so every block carries exactly one trailing
-                    // newline. `reorder_blocks` relies on this when inserting
-                    // blank-line separators.
-                    if m < bytes.len() && bytes[m] == b'\r' {
-                        m += 1;
-                    }
-                    if m < bytes.len() && bytes[m] == b'\n' {
-                        m += 1;
-                    }
-                    if let Some(id) = extract_focus_id(&content[block_start..m]) {
-                        blocks.push((block_start, m, id));
-                    }
-                    i = m;
-                    continue;
-                }
-            }
-        }
-        i += 1;
-    }
-    blocks
-}
-
-fn extract_focus_id(block: &str) -> Option<String> {
-    for line in block.lines() {
-        let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("id") {
-            let rest = rest.trim_start();
-            if let Some(rest) = rest.strip_prefix('=') {
-                let raw = rest.trim();
-                // Strip inline comment (e.g. `id = one # comment`).
-                let raw = raw.split_once('#').map_or(raw, |(v, _)| v.trim());
-                let value = raw.trim_matches('"');
-                if !value.is_empty() && !value.contains(|c: char| c == '{' || c.is_whitespace()) {
-                    return Some(value.to_owned());
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Reorders top-level `<event_type> = { ... }` blocks in `content` so position
-/// `i` holds the block whose id is `ordered_ids[i]`. See [`reorder_blocks`].
-fn reorder_event_blocks(content: &str, ordered_ids: &[String]) -> String {
-    reorder_blocks(content, &find_event_blocks(content), ordered_ids)
-}
-
-/// Scans `content` for top-level event blocks (`country_event`,
-/// `news_event`, etc.), returning `(start, end, id)` tuples. Each block's
-/// brace-matched body is consumed before the outer loop resumes, so nested
-/// `<event_type> = { ... }` triggers inside an event body are not misread
-/// as definitions.
-///
-/// All byte indices produced here land on ASCII character boundaries.
-#[expect(
-    clippy::indexing_slicing,
-    clippy::string_slice,
-    reason = "all byte accesses are guarded by i < bytes.len() checks; \
-              string slice indices are derived from ASCII token scanning so they \
-              are guaranteed to fall on char boundaries"
-)]
-fn find_event_blocks(content: &str) -> Vec<(usize, usize, String)> {
-    let bytes = content.as_bytes();
-    let mut blocks: Vec<(usize, usize, String)> = Vec::new();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'#' {
-            while i < bytes.len() && bytes[i] != b'\n' {
-                i += 1;
-            }
-            continue;
-        }
-        if bytes[i] == b'"' {
-            i += 1;
-            while i < bytes.len() && bytes[i] != b'"' {
-                i += 1;
-            }
-            if i < bytes.len() {
-                i += 1;
-            }
-            continue;
-        }
-        let preceded_by_ws = i == 0 || bytes[i - 1].is_ascii_whitespace();
-        let matched_kw_len = if preceded_by_ws {
-            EVENT_TYPES.iter().find_map(|ev| {
-                let ev_bytes = ev.as_bytes();
-                if !bytes[i..].starts_with(ev_bytes) {
-                    return None;
-                }
-                let after = i + ev_bytes.len();
-                let at_boundary = after >= bytes.len()
-                    || !(bytes[after].is_ascii_alphanumeric() || bytes[after] == b'_');
-                at_boundary.then_some(ev_bytes.len())
-            })
+    let settings = Settings {
+        check: actions.check,
+        fix: actions.fix,
+        format: actions.format,
+        lint: lint_files,
+        max_width: args.max_width,
+    };
+    // One pass over the script files and, alongside, the localisation
+    // files, all on every core.
+    let scripts = tracing::info_span!("scripts");
+    let loading = lint_files.then(|| tracing::info_span!("localisation load"));
+    let sizes: Vec<u64> = files
+        .iter()
+        .map(|file| file.size)
+        .chain(localisation_files.iter().map(|file| file.size))
+        .collect();
+    let done = pipeline::in_parallel(&sizes, |index| {
+        if let Some(file) = files.get(index) {
+            let _span =
+                tracing::info_span!(parent: &scripts, "file", path = %file.relative.display())
+                    .entered();
+            Done::Script(Box::new(pipeline::process(file, settings)))
+        } else if let (Some(file), Some(loading)) = (
+            index
+                .checked_sub(files.len())
+                .and_then(|index| localisation_files.get(index)),
+            &loading,
+        ) {
+            let _span =
+                tracing::info_span!(parent: loading, "file", path = %file.relative.display())
+                    .entered();
+            Done::Localisation(localisation::load(file))
         } else {
-            None
-        };
-        let Some(kw_len) = matched_kw_len else {
-            i += 1;
-            continue;
-        };
-
-        let mut j = i + kw_len;
-        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
-            j += 1;
+            Done::Nothing
         }
-        if j >= bytes.len() || bytes[j] != b'=' {
-            i += 1;
-            continue;
+    });
+    drop(scripts);
+    drop(loading);
+    let mut outcomes: Vec<Outcome> = Vec::with_capacity(files.len());
+    let mut defined: Vec<Vec<Box<str>>> = Vec::with_capacity(localisation_files.len());
+    for result in done {
+        match result {
+            Done::Localisation(keys) => defined.push(keys),
+            Done::Nothing => {}
+            Done::Script(outcome) => outcomes.push(*outcome),
         }
-        j += 1;
-        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
-            j += 1;
-        }
-        if j >= bytes.len() || bytes[j] != b'{' {
-            i += 1;
-            continue;
-        }
-
-        let line_start = content[..i].rfind('\n').map_or(0, |p| p + 1);
-        let mut block_start = line_start;
-        let mut scan_pos = line_start;
-        loop {
-            if scan_pos == 0 {
-                break;
-            }
-            let prev_nl = scan_pos - 1;
-            let prev_line_start = content[..prev_nl].rfind('\n').map_or(0, |p| p + 1);
-            if content[prev_line_start..prev_nl].trim().starts_with('#') {
-                block_start = prev_line_start;
-                scan_pos = prev_line_start;
-            } else {
-                break;
-            }
-        }
-        let mut depth: u32 = 0;
-        let mut m = j;
-        loop {
-            if m >= bytes.len() {
-                break;
-            }
-            match bytes[m] {
-                b'#' => {
-                    while m < bytes.len() && bytes[m] != b'\n' {
-                        m += 1;
-                    }
-                }
-                b'"' => {
-                    m += 1;
-                    while m < bytes.len() && bytes[m] != b'"' {
-                        m += 1;
-                    }
-                    if m < bytes.len() {
-                        m += 1;
-                    }
-                }
-                b'{' => {
-                    depth += 1;
-                    m += 1;
-                }
-                b'}' => {
-                    depth -= 1;
-                    m += 1;
-                    if depth == 0 {
-                        break;
-                    }
-                }
-                _ => {
-                    m += 1;
-                }
-            }
-        }
-        // Consume the line ending (LF or CRLF) so every block carries exactly
-        // one trailing newline, matching `find_focus_blocks`.
-        if m < bytes.len() && bytes[m] == b'\r' {
-            m += 1;
-        }
-        if m < bytes.len() && bytes[m] == b'\n' {
-            m += 1;
-        }
-        if let Some(id) = extract_focus_id(&content[block_start..m]) {
-            blocks.push((block_start, m, id));
-        }
-        i = m;
     }
-    blocks
+
+    let report = tracing::info_span!("report");
+    let (drift, write_failures) = report.in_scope(|| {
+        let _span = tracing::info_span!("summary").entered();
+        print_summaries(&files, &outcomes, actions)
+    });
+    let linted = match version {
+        _ if !actions.lint => Ok(()),
+        None => Err(AppError::NotModDir(args.path.clone())),
+        Some(version) => lint(
+            &files,
+            &outcomes,
+            LintInputs {
+                defined,
+                game,
+                languages: &languages,
+                localisation: &localisation_files,
+                version,
+            },
+            &report,
+        ),
+    };
+    drop(report);
+
+    if linted.is_ok() {
+        println!("Finished in {:.2?}.", start.elapsed());
+    }
+    if write_failures > 0 {
+        return Err(AppError::WriteFailed(write_failures));
+    }
+    linted?;
+    if drift {
+        return Err(AppError::FormatDrift);
+    }
+    Ok(())
 }

@@ -1,0 +1,7 @@
+# Fixture files whose line endings (or bytes) must be the same on every
+# platform, whatever `core.autocrlf` says, so the tests see both LF and CRLF
+# files everywhere.
+tests/test_mod/events/chains.txt text eol=lf
+tests/test_mod/common/ideas/hearty_ideas.txt text eol=crlf
+# Not UTF-8: stored and checked out byte for byte.
+tests/test_mod/events/latin1.txt -text

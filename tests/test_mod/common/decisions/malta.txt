@@ -1,0 +1,28 @@
+MLT_decisions = {
+	# Fortify the island.
+	MLT_fortify_valletta = {
+		complete_effect = {
+			add_political_power = 50
+		}
+		icon = generic_construction
+		fire_only_once = no
+		allowed = {
+			original_tag = MLT
+		}
+		available = {
+			has_war = no
+		}
+		cost = 50
+	}
+
+	MLT_invite_the_knights = {
+		icon = generic_prepare_civil_war
+		cost=25
+		fire_only_once = yes
+		visible = { }
+		complete_effect = {
+			add_stability = 0.05
+			add_war_support = 0.05
+		}
+	}
+}
