@@ -1,0 +1,12 @@
+# The tree's first focus shares a line with the tree's `{`, so the sorter
+# leaves the tree (and the file) as it is, although HRT_shared_b needs
+# HRT_shared_a first.
+focus_tree = { focus = {
+		id = HRT_shared_b
+		prerequisite = { focus = HRT_shared_a }
+	}
+
+	focus = {
+		id = HRT_shared_a
+	}
+}

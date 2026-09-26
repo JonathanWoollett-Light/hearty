@@ -1,0 +1,40 @@
+@hearty_cost = 1.5
+
+technologies = {
+	@hearty_year = 1936
+
+	HRT_tech_a = {
+		start_year = @hearty_year
+		research_cost = @hearty_cost
+		path = {
+			research_cost_coeff = 1
+			leads_to_tech = HRT_tech_b
+		}
+		folder = {
+			position = { x = 0 y = 0 }
+			name = infantry_folder
+		}
+		categories = {
+			infantry_weapons
+		}
+		enable_equipments = {
+			infantry_equipment_1
+		}
+	}
+
+	HRT_tech_b = {
+		research_cost = 1
+		start_year = 1938
+		folder = {
+			name = infantry_folder
+			position = {
+				x = 0
+				y = 2
+			}
+		}
+		categories = { infantry_weapons }
+	}
+}
+
+# Not a block of technologies: the linter skips it.
+technologies = odd_scalar_technologies

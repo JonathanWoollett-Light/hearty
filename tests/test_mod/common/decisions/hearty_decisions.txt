@@ -1,0 +1,41 @@
+HRT_category = {
+	HRT_mission = {
+		days_mission_timeout = 30
+		activation = { has_war = yes }
+		selectable_mission = no
+		is_good = No
+		icon = generic_decision
+		allowed = { always = yes }
+		available = { }
+		visible = { }
+		cancel_if_not_visible = no
+		# A field set twice is never reported: removing one could change which
+		# one the game uses.
+		fire_only_once = no
+		fire_only_once = no
+		timeout_effect = {
+			add_political_power = -50
+		}
+	}
+
+	HRT_decision = {
+		cost = 25
+		icon = "generic_research"
+		allowed = { }
+		visible = {
+			always = yes
+		}
+		complete_effect = {
+			add_political_power = 100
+		}
+		modifier = { political_power_gain = 0.1 }
+		days_remove = 30
+	}
+
+	HRT_not_redundant = {
+		icon = generic
+		fire_only_once = yes
+		is_good = yes
+		visible = { always = no }
+	}
+}

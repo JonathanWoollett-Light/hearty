@@ -1,0 +1,19 @@
+﻿HRT_category = {
+	visible = { always = yes }
+	allowed = { original_tag = HRT }
+	icon = generic_political_actions
+	picture = GFX_decision_cat_picture_hrt
+	visible_when_empty = no
+	available = { }
+	priority = 10
+}
+
+HRT_quick_category = { icon = generic visible_when_empty = no }
+
+HRT_empty_category = {
+	icon = generic
+	allowed = { }
+	visible = {
+		has_war = yes
+	}
+}

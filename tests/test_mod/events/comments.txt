@@ -1,0 +1,17 @@
+add_namespace = comments
+
+# A comment after an event's closing brace stays with that event when the
+# events move.
+country_event = {
+	id = comments.3
+	hidden = yes
+}# Ends comments.3.
+country_event = {
+	id = comments.2
+	hidden = yes
+}
+# About comments.1.
+country_event = {
+	id = comments.1
+	hidden = yes
+}

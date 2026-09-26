@@ -1,0 +1,11 @@
+# Windows-1252, not UTF-8: every command skips this file.
+add_namespace = latin
+country_event = {
+	id = latin.1
+	title = latin.1.t
+	desc = "Café society"
+	fire_only_once = no
+	option = {
+		name = latin.1.a
+	}
+}

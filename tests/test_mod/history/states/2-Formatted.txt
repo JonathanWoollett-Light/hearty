@@ -1,0 +1,11 @@
+state = {
+	id = 2
+	name = "STATE_2"
+	manpower = 2000
+	state_category = town
+	history = {
+		owner = HRT
+		add_core_of = HRT
+	}
+	provinces = { 1 2 3 }
+}

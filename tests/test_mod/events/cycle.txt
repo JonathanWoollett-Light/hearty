@@ -1,0 +1,25 @@
+add_namespace = cycle
+
+# These two events fire each other, so the sorter leaves their order alone.
+country_event = {
+	id = cycle.2
+	title = cycle.2.t
+	desc = cycle.2.d
+	is_triggered_only = yes
+	option = {
+		name = cycle.2.a
+		country_event = { id = cycle.1 days = 7 }
+	}
+}
+
+country_event = {
+	id = cycle.1
+	title = cycle.1.t
+	desc = cycle.1.d
+	is_triggered_only = yes
+	# Not an effect the game runs here, but the sorter still follows it.
+	country_event = cycle.2
+	option = {
+		name = cycle.1.a
+	}
+}

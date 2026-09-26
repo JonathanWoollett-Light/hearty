@@ -1,0 +1,9 @@
+# Not directly in events/: formatted as a generic script file, and its keys
+# are not checked for localisation.
+country_event = {
+	id = nested.1
+	title = nested.1.t
+	option = {
+		name = nested.1.a
+	}
+}

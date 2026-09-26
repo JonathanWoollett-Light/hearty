@@ -1,0 +1,35 @@
+ideas = {
+	country = {
+		HRT_idea = {
+			picture = HRT_idea
+			allowed = { always = yes }
+			allowed_civil_war = { always = no }
+			cancel = { always = no }
+			visible = { }
+			available = { }
+			modifier = {
+				stability_factor = 0.05
+			}
+		}
+
+		HRT_named_idea = {
+			name = HRT_named_idea_name
+			picture = HRT_named_idea
+			modifier = { war_support_factor = 0.05 }
+		}
+
+		HRT_other_picture = {
+			picture = GFX_idea_generic
+			cancel = { always = yes }
+		}
+	}
+
+	political_advisor = {
+		HRT_advisor_idea = {
+			allowed = { original_tag = HRT }
+			traits = { popular_figure }
+			cost = 150
+			visible = { always = yes }
+		}
+	}
+}

@@ -1,0 +1,5 @@
+l_english:
+ # Named like English localisation, but not a `.yml` file, so the linter
+ # ignores it: HRT_odd_b stays missing although the next line reads like its
+ # entry.
+ HRT_odd_b:0 "Not localisation"
