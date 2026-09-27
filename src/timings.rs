@@ -145,13 +145,14 @@ pub struct Profile {
 
 impl Profile {
     /// Folded stacks for a flamegraph: `a;b;c <self time in µs>` per span
-    /// path with at least a microsecond of self time.
+    /// path. Under a microsecond counts as one, so that every span that ran
+    /// has a frame.
     fn folded(&self) -> Vec<String> {
         self.stats
             .iter()
-            .filter_map(|(path, stat)| {
-                let micros = stat.self_busy.as_micros();
-                (micros > 0).then(|| format!("{} {micros}", path.join(";")))
+            .map(|(path, stat)| {
+                let micros = stat.self_busy.as_micros().max(1);
+                format!("{} {micros}", path.join(";"))
             })
             .collect()
     }
@@ -252,6 +253,9 @@ impl Profile {
             self.total_active()
         );
         options.subtitle = Some(subtitle);
+        // Draw every frame, however narrow: there is one per span path, so
+        // few, and a short span can still be found with the search.
+        options.min_width = 0.0_f64;
         "µs".clone_into(&mut options.count_name);
         "Span:".clone_into(&mut options.name_type);
         let mut writer = std::io::BufWriter::new(std::fs::File::create(path)?);
@@ -608,7 +612,10 @@ mod tests {
     /// Runs `f` with a fresh [`Recorder`] as this thread's subscriber (`f`
     /// gets it to install on the threads it starts), then returns what the
     /// recorder recorded, for a run of 1 s wall on 4 threads.
-    fn record<F: FnOnce(&Dispatch)>(f: F) -> Profile {
+    fn record<F>(f: F) -> Profile
+    where
+        F: FnOnce(&Dispatch),
+    {
         let recorder = Recorder::new();
         let dispatch = Dispatch::new(tracing_subscriber::registry().with(recorder.clone()));
         tracing::dispatcher::with_default(&dispatch, || f(&dispatch));
@@ -877,8 +884,7 @@ lint             100.00µs   0.00ns      1   0.1%   3.00ms
         assert_eq!(profile.timings(), expected);
     }
 
-    /// Folded stacks hold each path's self time in microseconds, leaving out
-    /// paths with none.
+    /// Folded stacks hold each path's self time in microseconds, at least 1.
     #[test]
     fn folded_stacks() {
         let profile = profile(&[
@@ -888,7 +894,7 @@ lint             100.00µs   0.00ns      1   0.1%   3.00ms
         ]);
         assert_eq!(
             profile.folded(),
-            ["lint;missing keys 250", "lint;walk 1500"]
+            ["lint 1", "lint;missing keys 250", "lint;walk 1500"]
         );
     }
 
@@ -912,6 +918,28 @@ lint             100.00µs   0.00ns      1   0.1%   3.00ms
         );
         assert!(svg.contains("hearty --format"), "{svg}");
         assert!(svg.contains("file"), "{svg}");
+    }
+
+    /// Every span that ran has a frame in the flamegraph, however short:
+    /// neither rounded down to nothing nor left out as too narrow to see.
+    #[test]
+    fn flamegraph_keeps_short_spans() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let path = dir.path().join("flamegraph.svg");
+        // Next to 10 s, 5 µs is under inferno's default minimum frame width
+        // (0.01% of the total), and under 1 µs rounds down to 0.
+        let profile = profile(&[
+            (&["format"], 10_000_000, 1, 3),
+            (&["format", "keys"], 5, 3, 0),
+            (&["format", "lookup"], 0, 3, 0),
+        ]);
+        profile
+            .write_flamegraph(&path, "hearty --format".to_owned())
+            .expect("flamegraph written");
+        let svg = std::fs::read_to_string(&path).expect("flamegraph read");
+        for frame in ["format", "keys", "lookup"] {
+            assert!(svg.contains(&format!(">{frame} (")), "no {frame} in {svg}");
+        }
     }
 
     /// Shares and parallelism are printed with fixed decimals, and are 0

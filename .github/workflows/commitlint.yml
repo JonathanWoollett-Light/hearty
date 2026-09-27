@@ -5,23 +5,33 @@ on:
     branches:
       - master
 
+permissions:
+  contents: read
+
+# A new push to a pull request cancels the run for its previous push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   commitlint:
     name: Commitlint
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read # list the pull request's commits
     steps:
+      # Only for .commitlintrc.yml: the action reads the commits from the API.
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Set up Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: lts/*
-
-      - name: Install commitlint
-        run: npm install --global @commitlint/cli @commitlint/config-conventional
-
+      # Every commit in the pull request, against .commitlintrc.yml
+      # (@commitlint/config-conventional), which the action's image includes.
+      # The SHA pins the action, but it runs the Docker Hub image tagged 6.2.1,
+      # which could be re-pushed. Accepted: this job can only read.
       - name: Check commit messages
-        run: commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
+        uses: wagoid/commitlint-github-action@b948419dd99f3fd78a6548d48f94e3df7f6bf3ed # v6.2.1
+        with:
+          configFile: .commitlintrc.yml

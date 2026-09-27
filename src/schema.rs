@@ -24,10 +24,10 @@ pub const EVENT_TYPES: &[&str] = &[
 
 /// Top-level keys under which a focus definition can appear in a national
 /// focus file (besides `focus_tree > focus`).
-const ROOT_FOCUS_KEYS: &[&str] = &["joint_focus", "shared_focus"];
+pub const ROOT_FOCUS_KEYS: &[&str] = &["joint_focus", "shared_focus"];
 
 /// Every redundant-field rule. See [`redundant_rules`].
-const REDUNDANT_RULES: &[RedundantRule] = &[
+pub const REDUNDANT_RULES: &[RedundantRule] = &[
     // --- Scalars set to their default -------------------------------------
     RedundantRule {
         explanation: "`fire_only_once` defaults to `no`",
@@ -354,6 +354,29 @@ pub enum BlockKind {
 }
 
 impl BlockKind {
+    /// Every kind, in declaration order.
+    pub const ALL: [Self; 19] = [
+        Self::Advisor,
+        Self::Character,
+        Self::CorpsCommander,
+        Self::CountryLeader,
+        Self::Decision,
+        Self::DecisionCategory,
+        Self::Event,
+        Self::EventDesc,
+        Self::EventOption,
+        Self::FieldMarshal,
+        Self::Focus,
+        Self::FocusOffset,
+        Self::FocusTree,
+        Self::Idea,
+        Self::NavyLeader,
+        Self::Scientist,
+        Self::Technology,
+        Self::TechnologyFolder,
+        Self::TechnologyPath,
+    ];
+
     /// Canonical order of this kind's top-level fields. Fields not listed stay
     /// where they are; repeated fields keep their relative order.
     pub const fn field_order(self) -> &'static [&'static str] {
@@ -834,29 +857,8 @@ mod tests {
 
     #[test]
     fn field_orders_have_no_duplicates() {
-        use BlockKind as B;
         use std::collections::HashSet;
-        for kind in [
-            B::Advisor,
-            B::Character,
-            B::CorpsCommander,
-            B::CountryLeader,
-            B::Decision,
-            B::DecisionCategory,
-            B::Event,
-            B::EventDesc,
-            B::EventOption,
-            B::FieldMarshal,
-            B::Focus,
-            B::FocusOffset,
-            B::FocusTree,
-            B::Idea,
-            B::NavyLeader,
-            B::Scientist,
-            B::Technology,
-            B::TechnologyFolder,
-            B::TechnologyPath,
-        ] {
+        for kind in BlockKind::ALL {
             let order = kind.field_order();
             let unique: HashSet<_> = order.iter().collect();
             assert_eq!(unique.len(), order.len(), "{kind:?}");

@@ -5,6 +5,16 @@ on:
     branches:
       - master
 
+permissions: {}
+
+# Rust comes from rustup, which the runners have. As dtolnay/rust-toolchain did:
+# coloured cargo output, no incremental builds (each run starts from scratch),
+# and rustup may copy a file it can't move across filesystems.
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  RUSTUP_PERMIT_COPY_RENAME: 1
+
 jobs:
   release-plz:
     name: Release-plz
@@ -13,23 +23,24 @@ jobs:
       group: release-plz-${{ github.ref }}
       cancel-in-progress: false
     permissions:
-      contents: write
-      id-token: write  # required for crates.io trusted publishing (OIDC)
-      pull-requests: write
+      contents: write # create the release tag and GitHub release; push the release PR's branch
+      id-token: write # crates.io trusted publishing (OIDC)
+      pull-requests: write # open and update the release PR
     outputs:
       releases_created: ${{ steps.release.outputs.releases_created }}
       releases: ${{ steps.release.outputs.releases }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      # `install` also updates the runner's stable to the newest release.
+      - name: Install Rust (stable)
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy --no-self-update
+          rustup default stable
 
       - name: cargo check
         run: cargo check
@@ -47,7 +58,7 @@ jobs:
       # release PR was just merged.
       - name: release-plz release
         id: release
-        uses: release-plz/action@v0.5
+        uses: release-plz/action@b8d6b54b02889ff2ae2bb82e8b57c3a8fc1683a5 # v0.5.139
         with:
           command: release
         env:
@@ -58,7 +69,7 @@ jobs:
       # Runs second: opens or updates a release PR with changelog and
       # version bump whenever new commits land on master.
       - name: release-plz release-pr
-        uses: release-plz/action@v0.5
+        uses: release-plz/action@b8d6b54b02889ff2ae2bb82e8b57c3a8fc1683a5 # v0.5.139
         with:
           command: release-pr
         env:
@@ -70,7 +81,12 @@ jobs:
     if: needs.release-plz.outputs.releases_created == 'true'
     runs-on: ${{ matrix.os }}
     permissions:
-      contents: write
+      contents: write # upload the binaries to the GitHub release
+    # Scripts read these from the environment: an expression expanded into a
+    # script's text could inject code into it.
+    env:
+      RELEASE_TAG: ${{ fromJson(needs.release-plz.outputs.releases)[0].tag }}
+      TARGET: ${{ matrix.target }}
     strategy:
       matrix:
         include:
@@ -80,35 +96,38 @@ jobs:
             target: x86_64-pc-windows-msvc
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ fromJson(needs.release-plz.outputs.releases)[0].tag }}
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+      - name: Install Rust (stable)
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --target "$TARGET" --no-self-update
+          rustup default stable
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        shell: bash
+        run: cargo build --release --target "$TARGET"
 
       - name: Package (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: tar czf hearty-x86_64-linux.tar.gz -C target/${{ matrix.target }}/release hearty
+        run: tar czf hearty-x86_64-linux.tar.gz -C "target/$TARGET/release" hearty
 
       - name: Package (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
-        run: Compress-Archive -Path target\${{ matrix.target }}\release\hearty.exe -DestinationPath hearty-x86_64-windows.zip
+        run: Compress-Archive -Path "target\$env:TARGET\release\hearty.exe" -DestinationPath hearty-x86_64-windows.zip
 
       - name: Upload (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: gh release upload "${{ fromJson(needs.release-plz.outputs.releases)[0].tag }}" hearty-x86_64-linux.tar.gz
+        run: gh release upload "$RELEASE_TAG" hearty-x86_64-linux.tar.gz
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload (Windows)
         if: matrix.os == 'windows-latest'
-        run: gh release upload "${{ fromJson(needs.release-plz.outputs.releases)[0].tag }}" hearty-x86_64-windows.zip
+        run: gh release upload "$env:RELEASE_TAG" hearty-x86_64-windows.zip
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

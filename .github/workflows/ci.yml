@@ -1,33 +1,150 @@
 name: ci
 
+# Every check a change must pass, in parallel jobs so a failure says which kind
+# of check failed. docs/development.md lists the commands to run them locally.
+
 on:
   pull_request:
     branches:
       - master
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+# Rust comes from rustup, which the runners have. As dtolnay/rust-toolchain did:
+# coloured cargo output, no incremental builds (each run starts from scratch),
+# and rustup may copy a file it can't move across filesystems.
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  RUSTUP_PERMIT_COPY_RENAME: 1
+
+# A new push to a pull request cancels the run for its previous push; every
+# push to master is checked in full.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   ci:
+    # Kept as "CI", the name branch protection may require.
     name: CI
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: cargo check
-        run: cargo check
+      # `install` also updates the runner's stable to the newest release.
+      - name: Install Rust (stable)
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy --no-self-update
+          rustup default stable
 
       - name: cargo fmt --check
         run: cargo fmt --check
 
+      - name: cargo check
+        run: cargo check --all-targets --locked
+
       - name: cargo clippy
-        run: cargo clippy -- --deny warnings
+        run: cargo clippy --all-targets --locked -- --deny warnings
+
+      - name: cargo doc
+        run: cargo doc --no-deps --document-private-items --locked
+        env:
+          RUSTDOCFLAGS: --deny warnings
 
       - name: cargo test
-        run: cargo test -- --nocapture
+        run: cargo test --locked -- --nocapture
+
+  msrv:
+    name: MSRV build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Read rust-version from Cargo.toml
+        id: msrv
+        run: echo "version=$(cargo metadata --no-deps --format-version 1 | jq --raw-output '.packages[0].rust_version')" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust ${{ steps.msrv.outputs.version }}
+        run: |
+          rustup toolchain install "$MSRV" --profile minimal --no-self-update
+          rustup default "$MSRV"
+        env:
+          MSRV: ${{ steps.msrv.outputs.version }}
+
+      # The binary only, which is what `cargo install hearty` builds. The tests
+      # may need a newer Rust: those in src/cst.rs use str::floor_char_boundary
+      # (1.91).
+      - name: cargo build
+        run: cargo build --locked
+
+  dependencies:
+    name: Dependencies (cargo-deny, cargo-machete)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # Advisories, licences, banned or duplicate crates and sources: deny.toml.
+      - name: cargo deny check
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+
+      - name: Install cargo-machete
+        if: ${{ !cancelled() }}
+        uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+        with:
+          tool: cargo-machete
+
+      - name: cargo machete (unused dependencies)
+        if: ${{ !cancelled() }}
+        run: cargo machete
+
+  workflows:
+    name: Workflows (actionlint, zizmor)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # Syntax, expressions and (with shellcheck) the shell in run: steps.
+      # Pinned by digest, which Dependabot doesn't update (it skips docker://
+      # images): to update, take a newer tag's digest from Docker Hub.
+      - name: actionlint
+        uses: docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 # 1.7.12
+        with:
+          args: -color
+
+      # Security: pinning, permissions, injection, and dependabot.yml.
+      - name: zizmor
+        if: ${{ !cancelled() }}
+        uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
+        with:
+          advanced-security: false
+
+  markdown:
+    name: Markdown (markdownlint)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # Which files and rules: .markdownlint-cli2.yaml.
+      - name: markdownlint
+        uses: DavidAnson/markdownlint-cli2-action@21c1be1b93ad9ed58fa840aacc3f279cde2a72ff # v24.2.0

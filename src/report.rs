@@ -10,6 +10,8 @@ use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 pub enum Change {
     /// Multi-line blocks joined onto one line.
     BlocksJoined,
+    /// Paragraphs of prose comments rewrapped to fit the line width.
+    CommentsReflowed,
     /// Top-level events moved by the event sorter.
     EventsReordered,
     /// Definition blocks whose fields were sorted.
@@ -30,6 +32,7 @@ impl Change {
     pub fn describe(self, count: usize) -> String {
         let (singular, plural) = match self {
             Self::BlocksJoined => ("block joined onto one line", "blocks joined onto one line"),
+            Self::CommentsReflowed => ("comment reflowed", "comments reflowed"),
             Self::EventsReordered => ("event moved", "events moved"),
             Self::FieldsReordered => (
                 "block with reordered fields",
@@ -355,6 +358,11 @@ mod tests {
                 Change::BlocksJoined,
                 "block joined onto one line",
                 "blocks joined onto one line",
+            ),
+            (
+                Change::CommentsReflowed,
+                "comment reflowed",
+                "comments reflowed",
             ),
             (Change::EventsReordered, "event moved", "events moved"),
             (

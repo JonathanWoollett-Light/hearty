@@ -1,0 +1,53 @@
+# cargo-deny configuration: https://embarkstudios.github.io/cargo-deny/
+# Checked by `cargo deny check` in CI (.github/workflows/ci.yml), and its
+# advisories weekly (.github/workflows/audit.yml), since new advisories appear
+# without any change here.
+
+# Only the targets hearty ships binaries for (see release-plz.yml), so
+# platform-only crates (e.g. r-efi for UEFI) don't need licence review.
+[graph]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
+all-features = true
+
+[advisories]
+# Unmaintained and unsound crates are reported too; yanked versions fail.
+yanked = "deny"
+ignore = []
+
+[licenses]
+confidence-threshold = 0.9
+# Only licences some dependency needs: a crate that also offers MIT or
+# Apache-2.0 (e.g. "Unlicense OR MIT") needs nothing more. A new licence is
+# reviewed when a dependency first brings it in.
+allow = [
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "CDLA-Permissive-2.0", # webpki-roots (Mozilla CA bundle data)
+    "ISC",
+    "MIT",
+    "Unicode-3.0",
+    "Zlib",
+]
+# inferno (--flamegraph) is CDDL-1.0, a file-level weak copyleft: hearty's own
+# code stays MIT, but whoever distributes a binary containing inferno, like the
+# release binaries, must tell its recipients how to get inferno's source
+# (CDDL-1.0 section 3.1). The README's Licence section does. An explicit,
+# reviewed exception for this one crate rather than a blanket allow.
+exceptions = [
+    { allow = ["CDDL-1.0"], crate = "inferno" },
+]
+
+[bans]
+# Two versions of a crate, pulled in by different dependencies, only warn:
+# there's usually nothing to do until they upgrade.
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -1,0 +1,17 @@
+# markdownlint-cli2: https://github.com/DavidAnson/markdownlint-cli2
+# Run by the markdown job in .github/workflows/ci.yml; locally,
+# `npx markdownlint-cli2` from the repository root.
+config:
+  # Prose isn't wrapped at a fixed width: one paragraph per line.
+  MD013: false
+  # The README's charts are <picture> elements, with an image for each theme.
+  MD033: false
+
+# Every Markdown file, less CHANGELOG.md, which release-plz writes, the test
+# fixtures, and what .gitignore leaves out (target/).
+globs:
+  - "**/*.md"
+ignores:
+  - CHANGELOG.md
+  - tests/**
+gitignore: true

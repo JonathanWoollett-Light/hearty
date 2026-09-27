@@ -47,7 +47,7 @@ const BOM: char = '\u{feff}';
 const MAX_ROUNDS: usize = 64;
 
 /// A tab advances to the next multiple of this many columns.
-const TAB_WIDTH: usize = 4;
+pub const TAB_WIDTH: usize = 4;
 
 /// What [`apply_doc`] changed.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -229,8 +229,9 @@ fn bom_len(src: &str) -> usize {
 
 /// The display width of `pieces` laid end to end from column 0: a tab
 /// advances to the next multiple of [`TAB_WIDTH`], any other char takes one
-/// column.
-fn columns(pieces: &[&str]) -> usize {
+/// column. (`--max-width` is measured so, by this rule and by
+/// [`reflow`](crate::reflow).)
+pub fn columns(pieces: &[&str]) -> usize {
     pieces
         .iter()
         .flat_map(|piece| piece.chars())
