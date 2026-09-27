@@ -4,6 +4,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Only propose a release once it's a week old: a broken or compromised
+    # release is usually yanked within days, and these are merged
+    # automatically (dependabot-auto-merge.yml).
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "chore"
     groups:
@@ -11,10 +16,15 @@ updates:
         patterns:
           - "*"
 
+  # Actions are pinned to commit SHAs; Dependabot updates the SHA and the
+  # version in the comment after it. It skips docker:// images, so the
+  # actionlint image in ci.yml is updated by hand.
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "chore"
     groups:

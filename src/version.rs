@@ -16,7 +16,11 @@ use std::io::Read as _;
 use std::sync::Arc;
 use std::time::SystemTime;
 
-const DEFAULT_CACHE_DIR: &str = ".hearty-cache";
+/// The environment variable naming the directory of the version cache.
+pub const CACHE_DIR_VAR: &str = "HEARTY_CACHE_DIR";
+
+/// The directory of the version cache when [`CACHE_DIR_VAR`] is not set.
+pub const DEFAULT_CACHE_DIR: &str = ".hearty-cache";
 
 const HOI4_ID: &str = "394360";
 
@@ -78,7 +82,7 @@ pub struct Report {
 ///     key: hoi4-version-cache
 /// ```
 fn cache_path() -> std::path::PathBuf {
-    std::env::var_os("HEARTY_CACHE_DIR")
+    std::env::var_os(CACHE_DIR_VAR)
         .map_or_else(
             || std::path::PathBuf::from(DEFAULT_CACHE_DIR),
             std::path::PathBuf::from,
@@ -114,7 +118,7 @@ fn check_descriptor(
     let latest_version = versions.into_iter().max()?;
 
     let src: Arc<str> = Arc::from(descriptor);
-    let handler = miette::GraphicalReportHandler::new();
+    let handler = crate::report_handler();
 
     let tape = jomini::TextTape::from_slice(descriptor.as_bytes()).ok()?;
     let reader = tape.windows1252_reader();

@@ -3,14 +3,21 @@ name: dependabot-auto-merge
 on:
   pull_request
 
+permissions: {}
+
 jobs:
   auto-merge:
     name: Auto-merge Dependabot PR
     runs-on: ubuntu-latest
-    if: github.actor == 'dependabot[bot]'
+    # Checks who opened the pull request, not github.actor: that's whoever
+    # triggered this run, which can be Dependabot on a pull request someone
+    # else opened. And only from a branch of this repository, as Dependabot's are.
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]'
+      && github.repository == github.event.pull_request.head.repo.full_name
     permissions:
-      contents: write
-      pull-requests: write
+      contents: write # merge the pull request
+      pull-requests: write # enable auto-merge on it
     steps:
       - name: Enable auto-merge
         run: gh pr merge --auto --merge "$PR_URL"

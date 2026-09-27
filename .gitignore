@@ -3,3 +3,6 @@
 .hearty-cache/
 
 .claude/
+
+# Python bytecode, written when scripts/plot_benchmarks.py is imported.
+__pycache__/

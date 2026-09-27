@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hearty rules</title>
+<meta name="description" content="Every lint and formatting rule of hearty, the linter and formatter for Hearts of Iron IV mods: what it does, why, and an example made by running it.">
+<meta name="color-scheme" content="dark light">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%23FF4D6D' d='M16 29 3.6 16.9A7.6 7.6 0 0 1 16 7.2a7.6 7.6 0 0 1 12.4 9.7Z'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<script>
+  // Before the page paints, so a chosen theme never flashes the other one.
+  try {
+    var theme = localStorage.getItem("hearty-theme");
+    if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+  } catch (e) {}
+</script>
+<script src="rules.js" defer></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the rules</a>
+
+<header class="site-header" id="top">
+  <div class="wrap">
+    <div class="topbar">
+      <a class="brand" href="#overview" aria-label="hearty rules, top of the page">
+        <svg class="heart" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 29 3.6 16.9A7.6 7.6 0 0 1 16 7.2a7.6 7.6 0 0 1 12.4 9.7Z"/></svg>
+        <span>hearty</span>
+      </a>
+      <nav class="nav" aria-label="Sections">
+        <a href="#lints">Lints</a>
+        <a href="#formatting">Formatting</a>
+        <a href="#options">Options</a>
+        <a href="https://github.com/JonathanWoollett-Light/hearty">GitHub</a>
+        <a href="https://crates.io/crates/hearty">crates.io</a>
+      </nav>
+      <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Use the light theme">
+        <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.6A8.5 8.5 0 0 1 9.4 3.5a8.5 8.5 0 1 0 11.1 11.1Z"/></svg>
+      </button>
+    </div>
+    <div class="hero">
+      <h1>hearty rules</h1>
+      <p class="lede">Every lint and formatting rule of <strong>hearty</strong>, the linter and formatter for Hearts of Iron IV mods: what it does, why, and an example made by running hearty on it.</p>
+      <ul class="stats" id="stats" aria-label="What hearty checks"></ul>
+    </div>
+  </div>
+</header>
+
+<div class="toolbar" role="search">
+  <div class="wrap toolbar-inner">
+    <div class="search">
+      <label class="visually-hidden" for="search">Search rules and options</label>
+      <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>
+      <input id="search" type="search" placeholder="Search rules and options" autocomplete="off" spellcheck="false">
+      <kbd class="search-key" aria-hidden="true">/</kbd>
+    </div>
+    <div class="filters" id="filters" role="group" aria-label="Show only these groups"></div>
+    <div class="toolbar-end">
+      <p class="count" id="count" aria-live="polite"></p>
+      <button class="text-button" id="clear" type="button" hidden>Clear filters</button>
+      <button class="text-button" id="expand" type="button">Expand all</button>
+    </div>
+  </div>
+</div>
+
+<main id="main" class="wrap" tabindex="-1">
+  <noscript><p class="notice">This page needs JavaScript to show the rules. Without it, every rule, option and example is in <a href="rules.js">rules.js</a>, the data this page shows, and <code>hearty --help</code> describes the options.</p></noscript>
+
+  <section id="overview" class="section" aria-labelledby="overview-title">
+    <h2 id="overview-title">Overview</h2>
+    <div class="overview">
+      <div class="overview-text">
+        <p>hearty checks a mod for problems (<a href="#lints">lints</a>) and rewrites its script files in one consistent style (<a href="#formatting">formatting</a>), on every core at once: even the largest Workshop mods take it seconds.</p>
+        <p>Install it with <code>cargo install hearty</code>, or download a binary from the <a href="https://github.com/JonathanWoollett-Light/hearty/releases/latest">latest release</a>. Every example on this page is hearty's real output, regenerated whenever the rules change.</p>
+      </div>
+      <pre class="commands" aria-label="Common commands"><code><span class="c-cmd">hearty</span>                <span class="c-com"># lint the mod in this folder</span>
+<span class="c-cmd">hearty</span> --fix          <span class="c-com"># remove redundant fields</span>
+<span class="c-cmd">hearty</span> --format       <span class="c-com"># format its script files</span>
+<span class="c-cmd">hearty</span> --check --lint <span class="c-com"># in CI: fail on unformatted files,</span>
+                      <span class="c-com"># missing localisation or redundant fields</span></code></pre>
+      <figure class="overview-run">
+        <figcaption>A lint run on a small mod</figcaption>
+        <div id="overview-run"></div>
+      </figure>
+    </div>
+  </section>
+
+  <section id="lints" class="section" aria-labelledby="lints-title">
+    <h2 id="lints-title">Lints <span class="section-count" id="lints-count"></span></h2>
+    <p class="section-intro"><code>hearty</code> (or <code>hearty --lint</code>) runs every lint, and exits with an error when it finds missing localisation or redundant fields. It shows the first <span data-constant="max_shown">10</span> findings of each kind in full, and counts the rest. Lints marked <span class="badge badge-fix">--fix</span> are fixed by <a href="#--fix"><code>hearty --fix</code></a>.</p>
+    <div id="lint-groups"></div>
+  </section>
+
+  <section id="formatting" class="section" aria-labelledby="formatting-title">
+    <h2 id="formatting-title">Formatting <span class="section-count" id="formatting-count"></span></h2>
+    <p class="section-intro"><a href="#--format"><code>hearty --format</code></a> applies these rules, in the order listed (joining short blocks and normalising spacing in one pass), to the <code>*.txt</code> files under <code>common/</code>, <code>events/</code> and <code>history/</code>, and <a href="#--check"><code>hearty --check</code></a> reports what they would change without writing, failing if any file would change. A file that doesn't parse, or isn't UTF-8, is left as it is. Every token and every word of every comment is kept, in order, and so are line endings and a leading BOM.</p>
+    <div id="format-groups"></div>
+  </section>
+
+  <section id="options" class="section" aria-labelledby="options-title">
+    <h2 id="options-title">Options <span class="section-count" id="options-count"></span></h2>
+    <p class="section-intro">Usage: <code>hearty [OPTIONS] [PATH]</code>. The actions are <a href="#--lint"><code>--lint</code></a> (the default when none is given), <a href="#--fix"><code>--fix</code></a>, <a href="#--format"><code>--format</code></a> and <a href="#--check"><code>--check</code></a>. Given together, they run in the order <code>--fix</code>, <code>--format</code>, <code>--check</code>, <code>--lint</code>, in one pass over the files on every core: each file is read once and written at most once. A file that can't be written is reported, isn't counted as fixed or formatted, and makes hearty exit with an error once everything else is done.</p>
+    <div class="options" id="option-list"></div>
+
+    <h3 class="subsection" id="environment">Environment variables</h3>
+    <div class="options" id="environment-list"></div>
+
+    <h3 class="subsection" id="usage"><code>hearty --help</code></h3>
+    <div id="usage-output"></div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <p><span class="heart-text" aria-hidden="true">♥</span> hearty is MIT licensed. This page is generated from its code and output by <a href="https://github.com/JonathanWoollett-Light/hearty/blob/master/tests/docs.rs"><code>tests/docs.rs</code></a>; a test fails when it falls out of date.</p>
+  </div>
+</footer>
+</body>
+</html>

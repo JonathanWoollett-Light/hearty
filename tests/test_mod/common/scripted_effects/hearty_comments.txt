@@ -1,0 +1,30 @@
+# Comments of prose wider than --max-width (100 columns unless set) are rewrapped to fit. This paragraph is
+# wrapped at 115 columns, so --format refills it at 100; the comments below show what it leaves as they are.
+#
+# ===== Commented-out script is never touched, however wide it is: nothing here is prose to rewrap =====
+#hearty_old_effect = {
+#	add_political_power = 100 # A trailing note in commented-out script, also far wider than the limit is.
+#	add_stability = 0.05
+#}
+##############################################################################################################
+### Decorations are left alone too ##########################################################################
+#
+# A paragraph whose last sentence may run on into the line below it is left alone, as refilling could strand
+# The line below, a capital after no full stop, may be a note of its own or the sentence going on.
+#num_of_factories > 50 is a trigger commented out: a token and an operator mark it as script, however wide.
+#hearty_effect_desc:0 "A localisation entry commented out is script too, so its quoted text is never split."
+# "Zara" "Pola" "Fiume" "Gorizia" "Trento" "Trieste" "Bolzano" "Pisa" "Emilia" "Veneto" "Friuli" "Istria"
+
+hearty_effect = {
+	# A note of its own is wider than the limit, so it is wrapped by itself; the note below is not joined to it.
+	# TODO: a note starting with a label stays on its own line.
+	add_political_power = 10 # A comment after code is never wrapped, however far past the limit it runs on.
+	# Items of a list hang under their text:
+	# - The first item is wider than the limit, so its words carry over onto lines that hang under the text
+	#   after its bullet, and on into its own continuation line.
+	# - The second item fits.
+	set_country_flag = hearty_flag
+	# A word too wide for any line, such as a link, is never broken:
+	# https://github.com/JonathanWoollett-Light/hearty/blob/master/tests/test_mod/common/scripted_effects/hearty_comments.txt
+	log = "# A hash in a quoted string starts no comment, however far past the limit this string runs on."
+}

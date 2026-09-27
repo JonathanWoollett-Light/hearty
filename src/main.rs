@@ -1,5 +1,10 @@
+#![forbid(unsafe_code)]
 #![warn(clippy::pedantic)]
 #![warn(clippy::restriction)]
+#![allow(
+    unknown_lints,
+    reason = "The list below names lints of the latest clippy, which CI runs; an older one lacks some."
+)]
 #![allow(
     clippy::single_call_fn,
     clippy::implicit_return,
@@ -28,10 +33,12 @@
     clippy::pattern_type_mismatch,           // match ergonomics are idiomatic Rust
     clippy::doc_markdown,                    // displaydoc format strings use {field} syntax, not code
     clippy::too_many_lines,                  // line counts are a noisy proxy for complexity
+    clippy::inline_modules,                  // each file's unit tests are in an inline `mod tests`
     reason = "Mitigates excessive and sometimes conflicting warnings from `clippy::restriction`."
 )]
 
 mod cst;
+mod docs;
 mod field_order;
 mod files;
 mod game;
@@ -40,6 +47,7 @@ mod keys;
 mod localisation;
 mod pipeline;
 mod redundant;
+mod reflow;
 mod report;
 mod schema;
 mod sort;
@@ -56,8 +64,17 @@ use report::{FileChange, Verb};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+/// The environment variable that, set to anything but `0`, makes hearty
+/// print in colour even when its output is not a terminal (as clap does for
+/// `--help`), unless [`NO_COLOR_VAR`] is set.
+const FORCE_COLOR_VAR: &str = "CLICOLOR_FORCE";
+
 /// Max number of diagnostics of each lint to print before truncating with ⋮.
 const MAX_MISSING: u64 = 10;
+
+/// The environment variable that, set to anything but an empty value, turns
+/// colour off (see <https://no-color.org>).
+const NO_COLOR_VAR: &str = "NO_COLOR";
 
 /// mimalloc copes far better than the system allocator with every core
 /// allocating at once, as the script pass does.
@@ -157,14 +174,20 @@ struct Args {
     #[arg(long)]
     lint: bool,
 
-    /// Maximum line width (tabs count as 4 columns) up to which formatting
-    /// joins a short block onto one line.
+    /// Maximum line width (tabs count as 4 columns). Formatting joins a short
+    /// block onto one line only if the line fits, and rewraps comments of
+    /// prose with a line wider than this.
     #[arg(long, default_value_t = 100, value_name = "COLUMNS")]
     max_width: usize,
 
     /// Path to the mod directory. Defaults to the current directory.
     #[arg(default_value = ".")]
     path: std::path::PathBuf,
+
+    /// Print the rules and options as JSON, for the rules site in `docs/`,
+    /// and exit (see `src/docs.rs`).
+    #[arg(long, hide = true)]
+    rules_json: bool,
 
     /// Print a breakdown of where the run's time went to stderr: for each
     /// part (action, file, formatter rule, parse, lint step), the time
@@ -314,6 +337,10 @@ fn fmt_commas(n: u64) -> String {
 fn inner_main() -> Result<(), AppError> {
     let start = std::time::Instant::now();
     let args = Args::parse();
+    if args.rules_json {
+        print!("{}", docs::rules_json());
+        return Ok(());
+    }
     // Only a profiled run installs a subscriber: without one, every span
     // callsite is disabled and costs next to nothing.
     let profiler = if args.timings || args.flamegraph.is_some() {
@@ -429,7 +456,7 @@ fn lint(
         .collect();
 
     report.in_scope(|| {
-        let handler = miette::GraphicalReportHandler::new();
+        let handler = report_handler();
         tracing::info_span!("missing keys").in_scope(|| {
             for (key, index, span, missing_langs) in shown {
                 let (Some(file), Some(text)) = (files.get(index), texts.get(&index)) else {
@@ -439,7 +466,9 @@ fn lint(
                     key: key.to_owned(),
                     missing_langs,
                     span: key_span(text, key, span).into(),
-                    src: NamedSource::new(file.path.display().to_string(), Arc::clone(text)),
+                    // Named relative to the mod's folder, as every other
+                    // diagnostic and summary names a file.
+                    src: NamedSource::new(file.relative.display().to_string(), Arc::clone(text)),
                 };
                 let mut out = String::new();
                 handler.render_report(&mut out, &diag)?;
@@ -596,6 +625,20 @@ fn print_summaries(files: &[ScriptFile], outcomes: &[Outcome], actions: Actions)
         !would_format.is_empty()
     };
     (drift, write_failures)
+}
+
+/// The handler rendering the lint's diagnostics: miette's default, which
+/// draws in colour only when stdout and stderr are both terminals, except
+/// that [`FORCE_COLOR_VAR`] forces colour (and Unicode) unless
+/// [`NO_COLOR_VAR`] turns it off, as they do for clap's `--help`. CI logs
+/// show colour, and the rules site shows the lint's real output.
+fn report_handler() -> miette::GraphicalReportHandler {
+    let set = |var: &str, off: &str| std::env::var_os(var).is_some_and(|value| value != off);
+    if set(FORCE_COLOR_VAR, "0") && !set(NO_COLOR_VAR, "") {
+        miette::GraphicalReportHandler::new_themed(miette::GraphicalTheme::unicode())
+    } else {
+        miette::GraphicalReportHandler::new()
+    }
 }
 
 /// Runs the actions `args` asks for. Every script file is read once and

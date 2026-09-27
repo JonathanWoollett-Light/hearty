@@ -15,7 +15,7 @@ use crate::keys::{self, KeyUse};
 use crate::redundant::{self, Finding};
 use crate::report::{Change, Changes, FileChange};
 use crate::schema::FileKind;
-use crate::{field_order, inline, sort};
+use crate::{field_order, inline, reflow, sort};
 use std::cmp::Reverse;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
@@ -160,16 +160,15 @@ fn fields_and_spacing(
     }
 }
 
-/// Runs every formatter rule over `doc`, a script file of kind `kind`:
-/// 1. Focus files: sort focuses within each tree; event files: sort the
-///    events so chains of events stay together (see [`sort`]).
-/// 2. Sort the fields of definition blocks (see [`field_order`]).
-/// 3. Join short blocks onto one line and normalise spacing (see
-///    [`inline`]).
-///
-/// Returns `None` if the file is formatted already.
-fn format_doc(kind: FileKind, doc: &Document<'_>, max_width: usize) -> Option<Formatted> {
-    let mut changes = Changes::default();
+/// The formatter rules that rewrite the script itself, steps 1 to 3 of
+/// [`format_doc`], recording what they change in `changes`. Returns the new
+/// text and its parse (if known), or `None` if they change nothing.
+fn script_rules(
+    kind: FileKind,
+    doc: &Document<'_>,
+    max_width: usize,
+    changes: &mut Changes,
+) -> Option<(String, Option<Block>)> {
     let sorted = match kind {
         FileKind::NationalFocus => tracing::info_span!("sort focuses")
             .in_scope(|| sort::focuses(doc))
@@ -185,12 +184,7 @@ fn format_doc(kind: FileKind, doc: &Document<'_>, max_width: usize) -> Option<Fo
         | FileKind::Technologies => None,
     };
     let Some((text, moved, change)) = sorted else {
-        let (text, root) = fields_and_spacing(kind, doc, max_width, &mut changes)?;
-        return Some(Formatted {
-            changes,
-            root,
-            text,
-        });
+        return fields_and_spacing(kind, doc, max_width, changes);
     };
     if moved > 0 {
         changes.add(change, moved);
@@ -199,9 +193,40 @@ fn format_doc(kind: FileKind, doc: &Document<'_>, max_width: usize) -> Option<Fo
     }
     let mut sorted = Script::new(text, None);
     let rest = sorted
-        .with_doc(|doc| fields_and_spacing(kind, doc, max_width, &mut changes))
+        .with_doc(|doc| fields_and_spacing(kind, doc, max_width, changes))
         .flatten();
-    let (text, root) = rest.unwrap_or_else(|| sorted.into_parts());
+    Some(rest.unwrap_or_else(|| sorted.into_parts()))
+}
+
+/// Runs every formatter rule over `doc`, a script file of kind `kind`:
+/// 1. Focus files: sort focuses within each tree; event files: sort the
+///    events so chains of events stay together (see [`sort`]).
+/// 2. Sort the fields of definition blocks (see [`field_order`]).
+/// 3. Join short blocks onto one line and normalise spacing (see
+///    [`inline`]).
+/// 4. Rewrap prose comments wider than `max_width` (see [`reflow`]).
+///
+/// Returns `None` if the file is formatted already.
+fn format_doc(kind: FileKind, doc: &Document<'_>, max_width: usize) -> Option<Formatted> {
+    let mut changes = Changes::default();
+    let reflow = |doc: &Document<'_>, changes: &mut Changes| {
+        let (text, reflowed) = tracing::info_span!("reflow comments")
+            .in_scope(|| reflow::apply_doc(doc, max_width))?;
+        changes.add(Change::CommentsReflowed, reflowed);
+        Some(text)
+    };
+    // Reflowing makes no parse of its result: only the few files whose
+    // comments it rewraps are parsed again, if a later stage needs it.
+    let (text, root) = match script_rules(kind, doc, max_width, &mut changes) {
+        None => (reflow(doc, &mut changes)?, None),
+        Some((text, root)) => {
+            let mut script = Script::new(text, root);
+            match script.with_doc(|doc| reflow(doc, &mut changes)).flatten() {
+                Some(reflowed) => (reflowed, None),
+                None => script.into_parts(),
+            }
+        }
+    };
     Some(Formatted {
         changes,
         root,
@@ -633,6 +658,44 @@ mod tests {
             order.sort_unstable();
             assert_eq!(order, (0..50).collect::<Vec<_>>());
         }
+    }
+
+    /// Comments are reflowed last, where the other rules left them, and
+    /// counted with their changes.
+    #[test]
+    fn reflows_comments_last() {
+        let src = "cat = {\n\tdec = {\n\t\tcomplete_effect = {\n\t\t\tadd_political_power = 1\n\t\t}\n\t\t# The icon shows in the decision list, next to its name and cost, so pick one that reads well.\n\t\ticon = x\n\t}\n}\n";
+        let (formatted, changes) = format_text(FileKind::Decisions, src, 60);
+        assert_eq!(
+            formatted,
+            "cat = {\n\tdec = {\n\t\t# The icon shows in the decision list, next to its\n\t\t# name and cost, so pick one that reads well.\n\t\ticon = x\n\t\tcomplete_effect = { add_political_power = 1 }\n\t}\n}\n"
+        );
+        assert_eq!(
+            changes.iter().collect::<Vec<_>>(),
+            [
+                (Change::BlocksJoined, 1),
+                (Change::CommentsReflowed, 1),
+                (Change::FieldsReordered, 1)
+            ]
+        );
+        // Only the comment: the text is not otherwise formatted.
+        let (again, changes) = format_text(
+            FileKind::Other,
+            "# a b c d e f g h i j k l m n o p q r s t u v w x y z\n",
+            30,
+        );
+        assert_eq!(
+            again,
+            "# a b c d e f g h i j k l m n\n# o p q r s t u v w x y z\n"
+        );
+        assert_eq!(
+            changes.iter().collect::<Vec<_>>(),
+            [(Change::CommentsReflowed, 1)]
+        );
+        assert_eq!(
+            format_text(FileKind::Decisions, &formatted, 60).0,
+            formatted
+        );
     }
 
     #[test]

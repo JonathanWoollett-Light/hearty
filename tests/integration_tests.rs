@@ -20,9 +20,9 @@ use base64::prelude::*;
 use serde_json::{Value, json};
 
 #[cfg(windows)]
-const HASH: &str = "9CMip04YMdtZ1O52kv2khAGM4dDZe/om7HNVN4S76QY=";
+const HASH: &str = "SDPQEdSrbAqnTERExVNhfB4hBcOpVbaC2gMgBrDmfwE=";
 #[cfg(not(windows))]
-const HASH: &str = "R2I2WT46Z6K5Jhibsdqe7ThZAv++Ni2CTB3Kfy1fdBc=";
+const HASH: &str = "13uqw3XrAxxoOWM/OGVkKf/b11xpJQWEj6oahOgx3RI=";
 
 const BINARY: &str = env!("CARGO_BIN_EXE_hearty");
 
@@ -486,18 +486,106 @@ fn test_fmt_rules_and_report() {
     let focuses = read(&to, "common/national_focus/bulgaria.txt");
     assert!(focuses.contains("x = -1"), "{focuses}");
 
-    assert!(stdout.contains("Formatted 19 files:"), "{stdout}");
+    assert!(stdout.contains("Formatted 20 files:"), "{stdout}");
     assert!(stdout.contains("common/decisions/malta.txt"), "{stdout}");
     assert!(
-        stdout.contains("19 files changed, 183 insertions(+), 215 deletions(-)"),
+        stdout.contains("20 files changed, 190 insertions(+), 220 deletions(-)"),
         "{stdout}"
     );
     assert!(
         stdout.contains(
-            "Changes: 20 blocks joined onto one line, 13 events moved, 39 blocks with reordered \
-             fields, 9 focuses moved, 1 blank-line fix, 10 spacing fixes"
+            "Changes: 20 blocks joined onto one line, 3 comments reflowed, 13 events moved, 39 \
+             blocks with reordered fields, 9 focuses moved, 1 blank-line fix, 10 spacing fixes"
         ),
         "{stdout}"
+    );
+}
+
+/// `--format` rewraps comments of prose wider than `--max-width` to fit,
+/// and leaves alone commented-out script (a block, a trigger, a localisation
+/// entry, a list of names), decorations, a paragraph that may run on into the
+/// line below it, comments after code, a word too wide for any line and `#`
+/// in a string, however wide.
+#[test]
+fn test_fmt_reflows_comments() {
+    const FILE: &str = "common/scripted_effects/hearty_comments.txt";
+    let (_tmp, to) = copy_test_mod();
+    let result = run(&to, &["--format"]);
+    assert!(result.status.success(), "{result}");
+    assert!(
+        result.stdout.contains(
+            "common/scripted_effects/hearty_comments.txt         +7   -5  (3 comments reflowed)"
+        ),
+        "{result}"
+    );
+    let original = read(Path::new("tests/test_mod"), FILE);
+    let comments = read(&to, FILE);
+    // A paragraph wrapped at 115 columns is refilled at 100.
+    assert!(
+        comments.starts_with(
+            "# Comments of prose wider than --max-width (100 columns unless set) are rewrapped to \
+             fit. This\n# paragraph is wrapped at 115 columns, so --format refills it at 100; the \
+             comments below show what\n# it leaves as they are.\n#\n"
+        ),
+        "{comments}"
+    );
+    // A note is wrapped on its own, and the next is not joined to it.
+    assert!(
+        comments.contains(
+            "\t# A note of its own is wider than the limit, so it is wrapped by itself; the note \
+             below is not\n\t# joined to it.\n\t# TODO: a note starting with a label stays on its \
+             own line.\n"
+        ),
+        "{comments}"
+    );
+    // An item's words hang under its text.
+    assert!(
+        comments.contains(
+            "\t# - The first item is wider than the limit, so its words carry over onto lines \
+             that hang under\n\t#   the text after its bullet, and on into its own continuation \
+             line.\n\t# - The second item fits.\n"
+        ),
+        "{comments}"
+    );
+    // The other lines wider than 100 columns are as they were: commented-out
+    // script, decorations, a paragraph that may run on, a comment after
+    // code, a link and a string.
+    let wide: Vec<&str> = original
+        .lines()
+        .filter(|line| line.len() > 100 && !comments.contains(&format!("{line}\n")))
+        .collect();
+    assert_eq!(
+        wide,
+        [
+            "# Comments of prose wider than --max-width (100 columns unless set) are rewrapped to \
+             fit. This paragraph is",
+            "# wrapped at 115 columns, so --format refills it at 100; the comments below show what \
+             it leaves as they are.",
+            "\t# A note of its own is wider than the limit, so it is wrapped by itself; the note \
+             below is not joined to it.",
+            "\t# - The first item is wider than the limit, so its words carry over onto lines that \
+             hang under the text",
+        ],
+        "only the prose changed\n{comments}"
+    );
+    assert_eq!(
+        original.lines().filter(|line| line.len() > 100).count(),
+        wide.len() + 11,
+        "eleven other lines are wider than 100 columns"
+    );
+
+    // Formatted, the file passes the check; unformatted, it fails it.
+    let result = run(&to, &["--check"]);
+    assert!(result.status.success(), "{result}");
+    std::fs::copy(Path::new("tests/test_mod").join(FILE), to.join(FILE)).unwrap();
+    let result = run(&to, &["--check"]);
+    assert_eq!(result.status.code(), Some(1), "{result}");
+    assert!(
+        result.stdout.contains(
+            "1 file would be reformatted:\n  common/scripted_effects/hearty_comments.txt  +7  -5  \
+             (3 comments reflowed)\n"
+        ),
+        "{result}"
     );
 }
 
@@ -519,6 +607,7 @@ fn test_fmt_every_file_kind() {
         "common/countries/Hearty.txt                         +2   -2  (2 spacing fixes)",
         "common/national_focus/odd_shapes.txt                +6   -5  (2 focuses moved)",
         "events/odd_shapes.txt                               +8   -8  (2 events moved)",
+        "common/scripted_effects/hearty_comments.txt         +7   -5  (3 comments reflowed)",
     ] {
         assert!(stdout.contains(line), "{line}\n{stdout}");
     }
@@ -692,7 +781,8 @@ fn test_fmt_every_file_kind() {
     );
 }
 
-/// `--max-width` limits the lines joining may create.
+/// `--max-width` limits the lines joining may create, and the width comments
+/// are rewrapped to.
 #[test]
 fn test_fmt_max_width() {
     let (_tmp, to) = copy_test_mod();
@@ -709,12 +799,21 @@ fn test_fmt_max_width() {
         decisions.contains("\t\tallowed = {\n\t\t\toriginal_tag = MLT\n\t\t}\n"),
         "{decisions}"
     );
-    // A narrower limit joins fewer blocks than the default of 100.
+    // A narrower limit joins fewer blocks than the default of 100, and
+    // rewraps more comments.
     assert!(
         result
             .stdout
-            .contains("Changes: 5 blocks joined onto one line"),
+            .contains("Changes: 5 blocks joined onto one line, 20 comments reflowed"),
         "{result}"
+    );
+    let decisions = read(&to, "common/decisions/hearty_decisions.txt");
+    assert!(
+        decisions.contains(
+            "\t\t# A field set twice is never\n\t\t# reported: removing one could\n\t\t# change \
+             which one the game\n\t\t# uses.\n"
+        ),
+        "{decisions}"
     );
 }
 
@@ -727,7 +826,7 @@ fn test_check() {
     let result = run(&to, &["--check"]);
     assert!(!result.status.success(), "{result}");
     assert!(
-        result.stdout.contains("19 files would be reformatted:"),
+        result.stdout.contains("20 files would be reformatted:"),
         "{result}"
     );
     assert!(result.stdout.contains("events/germany.txt"), "{result}");
@@ -1016,7 +1115,7 @@ fn test_fmt_unwritable_file() {
     // Neither fixed nor formatted, but counted after the files that were;
     // the check sees it unchanged.
     assert!(result.stdout.contains("Fixed 7 files:"), "{result}");
-    assert!(result.stdout.contains("Formatted 18 files:"), "{result}");
+    assert!(result.stdout.contains("Formatted 19 files:"), "{result}");
     let (written, checked) = result
         .stdout
         .split_once("1 file would be reformatted:")
@@ -1162,12 +1261,22 @@ fn test_lint_default() {
     // holds a focus, whose id is not reported.
     assert!(!stderr.contains("HRT_readme"), "{result}");
     // A missing key points where it is defined, not where it first
-    // appears (HRT_odd_a first appears as HRT_odd_b's prerequisite).
-    assert!(stderr.contains("odd_shapes.txt:21:8]"), "{result}");
+    // appears (HRT_odd_a first appears as HRT_odd_b's prerequisite). Its
+    // file is named relative to the mod's folder, as a redundant field's is.
+    let sep = std::path::MAIN_SEPARATOR;
+    assert!(
+        stderr.contains(&format!(
+            "[common{sep}national_focus{sep}odd_shapes.txt:21:8]"
+        )),
+        "{result}"
+    );
     // A key used in several files is reported in the first of them:
     // cycle.1.a is an option name in `events/cycle.txt` and a title in
     // `events/shared_line.txt`.
-    assert!(stderr.contains("cycle.txt:23:10]"), "{result}");
+    assert!(
+        stderr.contains(&format!("[events{sep}cycle.txt:23:10]")),
+        "{result}"
+    );
     assert!(!stderr.contains("shared_line.txt"), "{result}");
 
     // Redundant fields: the first 10 are shown, those that --fix leaves
@@ -1472,7 +1581,7 @@ fn test_all_actions() {
     };
     let order = [
         position("Fixed 8 files:"),
-        position("Formatted 19 files:"),
+        position("Formatted 20 files:"),
         position("Formatting check passed: no files would change."),
         position("Found 7/76 missing localisations."),
         position("Found 2 redundant fields (0 fixable with --fix)."),
@@ -1624,6 +1733,7 @@ fn test_timings_and_flamegraph() {
         "sort focuses",
         "field order",
         "inline",
+        "reflow comments",
         "parse",
     ] {
         assert!(
