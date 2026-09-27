@@ -4,6 +4,8 @@
 [![Deps.rs Crate Dependencies (latest)](https://img.shields.io/deps-rs/hearty/latest)](https://crates.io/crates/hearty/dependencies)
 [![Crates.io Size](https://img.shields.io/crates/size/hearty)](https://crates.io/crates/hearty)
 
+A formatter and linter for HOI4 mods.
+
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/charts/dark/hero.png"><img alt="hearty found 863,618 problems in five large Workshop mods, checking them all in 2.6 s and fixing them in 7.8 s" src="docs/charts/light/hero.png"></picture>
 
 ### Installation
