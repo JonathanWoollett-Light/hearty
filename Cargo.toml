@@ -1,6 +1,6 @@
 [package]
 name = "hearty"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 # The oldest Rust that builds the binary (`cargo install hearty`), checked by
 # the MSRV job in ci.yml. Several dependencies need 1.88.
