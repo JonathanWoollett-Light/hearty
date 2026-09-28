@@ -8,9 +8,10 @@
 //! ```
 //!
 //! and commit `docs/rules.js`. Nothing in it is copied by hand:
-//! - the redundant-field rules, the block kinds with their field orders, the
-//!   options and the environment variables come from hearty itself
-//!   (`hearty --rules-json`, see `src/docs.rs`);
+//! - the redundant fields (one rule on the site, listing them all), the
+//!   block kinds with their field orders, the options and the environment
+//!   variables come from hearty itself (`hearty --rules-json`, see
+//!   `src/docs.rs`);
 //! - the prose about the other rules is here, and
 //!   [`every_lint_and_change_is_documented`] checks that each lint
 //!   diagnostic and each kind of formatting change in `src/` has a rule
@@ -90,6 +91,9 @@ const PREFERRED_KINDS: &[&str] = &[
 /// The script making the rest of the page's anchors and links.
 const SCRIPT_FILE: &str = "docs/app.js";
 
+/// The redundant field whose example the site shows.
+const SHOWN_REDUNDANT_FIELD: &str = "redundant_fire_only_once_no";
+
 /// Where the site is published (see `.github/workflows/pages.yml`).
 const SITE_URL: &str = "https://jonathanwoollett-light.github.io/hearty/";
 
@@ -147,20 +151,7 @@ const GROUPS: &[Group] = &[
     Group {
         category: "lint",
         id: "redundant",
-        intro: "Fields set to their default value, or that otherwise have no effect. Each rule \
-                below is one field and value, in the kinds of block listed: the definition \
-                block's own fields, not those of a block nested in it (a decision's \
-                `fire_only_once`, not one inside its `complete_effect`).
-
-- Values compare as the game reads them: ASCII case-insensitively (`No` is `no`), quotes \
-aside (`\"no\"` is `no`), and by value when both are numbers (`0.0` is `0`, but `5e1` is not \
-`50`). Keys are case-sensitive, and only plain `=` assignments count.
-- A block value must hold exactly the entries shown, in any order.
-- A field that may only appear once is reported only where it does: removing one of \
-several could change which one the game uses.
-- [`--fix`](#--fix) removes each field with its line, tidying the blank lines around it. \
-It never deletes a comment: a field with a comment inside it, or after it on its line, is \
-reported but left in place, and comment lines above it stay.",
+        intro: "",
         name: "Redundant fields",
     },
     Group {
@@ -195,8 +186,8 @@ reported but left in place, and comment lines above it stay.",
     },
 ];
 
-/// The rules described here, in page order; the redundant-field rules,
-/// described by the code, go after the lints'.
+/// The rules described here, in page order; the redundant-fields rule,
+/// whose fields the code describes, goes after the lints'.
 const RULES: &[Rule] = &[
     Rule {
         code: &["MissingLocalisation"],
@@ -1585,75 +1576,103 @@ fn redundant_example(rule: &Value, kinds: &BTreeMap<String, Value>, cache: &Path
     })
 }
 
-/// The kinds of block the redundant-field `rule` applies to, in prose: `a
-/// decision or an event`.
-fn kinds_phrase(rule: &Value, kinds: &BTreeMap<String, Value>) -> String {
-    let names: Vec<String> = rule["kinds"]
+/// The names of the kinds of block the redundant-field `rule` applies to:
+/// `Decision, Event`.
+fn kind_names(rule: &Value, kinds: &BTreeMap<String, Value>) -> String {
+    rule["kinds"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|kind| {
-            let name = kinds[kind.as_str().unwrap()]["name"]
-                .as_str()
-                .unwrap()
-                .to_lowercase();
-            let article = if name.starts_with(['a', 'e', 'i', 'o', 'u']) {
-                "an"
-            } else {
-                "a"
-            };
-            format!("{article} {name}")
-        })
-        .collect();
-    match names.split_last() {
-        Some((last, rest)) if !rest.is_empty() => format!("{} or {last}", rest.join(", ")),
-        _ => names.concat(),
-    }
+        .map(|kind| kinds[kind.as_str().unwrap()]["name"].as_str().unwrap())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
-/// The site's entry for the redundant-field `rule` (from `hearty
-/// --rules-json`).
-fn redundant_rule(rule: &Value, kinds: &BTreeMap<String, Value>, cache: &Path) -> Value {
+/// The field a redundant-field `rule` (from `hearty --rules-json`) reports,
+/// as written: `fire_only_once = no`.
+fn redundant_field(rule: &Value) -> String {
     let key = rule["key"].as_str().unwrap();
-    let field = rule["value"].as_str().map_or_else(
+    rule["value"].as_str().map_or_else(
         || format!("{key} = <block name>"),
         |value| format!("{key} = {value}"),
-    );
-    let explanation = rule["explanation"].as_str().unwrap();
-    let mut why = explanation.to_owned();
-    if let Some(first) = why.get(..1) {
-        why.replace_range(..1, &first.to_uppercase());
-    }
-    let notes = if rule["repeatable"].as_bool().unwrap() {
-        format!("`{key}` may appear several times in a block: each redundant one is reported.")
-    } else {
-        format!(
-            "Only reported in a block with a single `{key}`: removing one of several could \
-             change which one the game uses."
-        )
-    };
-    let blocks = kinds_phrase(rule, kinds);
-    let what = if rule["value_kind"] == "own_name" {
-        format!(
-            "Reports a `{key}` set to the name of the block it's in, in {blocks} with no \
-             `name` field."
-        )
-    } else {
-        format!("Reports the field `{field}` in {blocks}.")
-    };
+    )
+}
+
+/// The site's one rule for redundant fields, listing every field the code
+/// describes (`rules`, from `hearty --rules-json`) with the kinds of block
+/// it applies to. Every field's example is run, so each is checked to be
+/// reported by `--lint` and removed by `--fix`, but only the one of
+/// [`SHOWN_REDUNDANT_FIELD`] is shown.
+fn redundant_fields_rule(rules: &[Value], kinds: &BTreeMap<String, Value>, cache: &Path) -> Value {
+    let examples: Vec<Value> = rules
+        .par_iter()
+        .map(|rule| redundant_example(rule, kinds, cache))
+        .collect();
+    let shown = rules
+        .iter()
+        .position(|rule| rule["id"] == SHOWN_REDUNDANT_FIELD)
+        .unwrap_or_else(|| panic!("no redundant field {SHOWN_REDUNDANT_FIELD}"));
+    let fields: Vec<Value> = rules
+        .iter()
+        .map(|rule| {
+            let mut why = rule["explanation"].as_str().unwrap().to_owned();
+            if let Some(first) = why.get(..1) {
+                why.replace_range(..1, &first.to_uppercase());
+            }
+            let mut where_ = kind_names(rule, kinds);
+            if rule["value_kind"] == "own_name" {
+                where_.push_str(" (with no `name` field)");
+            }
+            json!({
+                "applies_to": rule["kinds"],
+                "field": redundant_field(rule),
+                "id": rule["id"],
+                "repeatable": rule["repeatable"],
+                "where": where_,
+                "why": format!("{why}."),
+            })
+        })
+        .collect();
+    // Every kind of block some field applies to, alphabetically.
+    let applies_to: Vec<&String> = kinds
+        .keys()
+        .filter(|kind| {
+            rules.iter().any(|rule| {
+                rule["kinds"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|other| other == kind.as_str())
+            })
+        })
+        .collect();
     json!({
-        "applies_to": rule["kinds"],
+        "applies_to": applies_to,
         "category": "lint",
-        "examples": [redundant_example(rule, kinds, cache)],
+        "examples": [examples[shown].clone()],
+        "fields": fields,
         "fix": true,
         "group": "redundant",
-        "id": rule["id"],
-        "notes": notes,
-        "summary": format!("{why}."),
-        "title": format!("`{field}`"),
-        "what": what,
-        "why": format!("{why}, so the field changes nothing: it only makes the block longer, \
-                        and a reader may take it to matter."),
+        "id": "redundant_fields",
+        "notes": "- Only the definition block's own fields count, not those of a block nested \
+in it: a decision's `fire_only_once`, not one inside its `complete_effect`.
+- Values compare as the game reads them: ASCII case-insensitively (`No` is `no`), quotes \
+    aside (`\"no\"` is `no`), and by value when both are numbers (`0.0` is `0`, but `5e1` is not \
+`50`). Keys are case-sensitive, and only plain `=` assignments count.
+- A block value must hold exactly the entries shown, in any order.
+- A field that may only appear once in a block is reported only where it does: removing one \
+    of several could change which one the game uses. Fields marked as repeatable are reported \
+each time.
+- [`--fix`](#--fix) removes each field with its line, tidying the blank lines around it. \
+    It never deletes a comment: a field with a comment inside it, or after it on its line, is \
+    reported but left in place, and comment lines above it stay.",
+        "summary": "Fields set to their default value, or that otherwise have no effect.",
+        "title": "Redundant fields",
+        "what": "Reports fields that change nothing: a field set to the value the game uses \
+    when it is missing, such as `fire_only_once = no` in a decision, or a trigger block that is \
+    always true. These are the fields it knows, and the blocks each applies to:",
+        "why": "A field that changes nothing only makes the block longer, and a reader may take \
+    it to matter.",
     })
 }
 
@@ -1808,14 +1827,11 @@ fn site_data(cache: &Path) -> Value {
             .collect()
     };
     let mut rules = described("lint");
-    rules.extend(
-        code["redundant_rules"]
-            .as_array()
-            .unwrap()
-            .par_iter()
-            .map(|rule| redundant_rule(rule, &kinds, cache))
-            .collect::<Vec<_>>(),
-    );
+    rules.push(redundant_fields_rule(
+        code["redundant_rules"].as_array().unwrap(),
+        &kinds,
+        cache,
+    ));
     rules.extend(described("format"));
     let groups: Vec<Value> = GROUPS
         .iter()
@@ -1862,6 +1878,14 @@ fn anchors(data: &Value, page: &str) -> Vec<String> {
     let each = |key: &str| data[key].as_array().unwrap().iter();
     anchors.extend(each("groups").map(|group| format!("group-{}", group["id"].as_str().unwrap())));
     anchors.extend(each("rules").map(|rule| rule["id"].as_str().unwrap().to_owned()));
+    // The rows of the redundant-fields rule's table of fields.
+    anchors.extend(each("rules").flat_map(|rule| {
+        rule["fields"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|field| field["id"].as_str().unwrap().to_owned())
+    }));
     anchors.extend(
         each("block_kinds").map(|kind| format!("field_order_{}", kind["id"].as_str().unwrap())),
     );

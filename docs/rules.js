@@ -507,7 +507,7 @@ window.HEARTY = {
     {
       "category": "lint",
       "id": "redundant",
-      "intro": "Fields set to their default value, or that otherwise have no effect. Each rule below is one field and value, in the kinds of block listed: the definition block's own fields, not those of a block nested in it (a decision's `fire_only_once`, not one inside its `complete_effect`).\n\n- Values compare as the game reads them: ASCII case-insensitively (`No` is `no`), quotes aside (`\"no\"` is `no`), and by value when both are numbers (`0.0` is `0`, but `5e1` is not `50`). Keys are case-sensitive, and only plain `=` assignments count.\n- A block value must hold exactly the entries shown, in any order.\n- A field that may only appear once is reported only where it does: removing one of several could change which one the game uses.\n- [`--fix`](#--fix) removes each field with its line, tidying the blank lines around it. It never deletes a comment: a field with a comment inside it, or after it on its line, is reported but left in place, and comment lines above it stay.",
+      "intro": "",
       "name": "Redundant fields"
     },
     {
@@ -907,8 +907,20 @@ window.HEARTY = {
     },
     {
       "applies_to": [
+        "advisor",
+        "character",
+        "corps_commander",
+        "country_leader",
         "decision",
-        "event"
+        "decision_category",
+        "event",
+        "event_option",
+        "field_marshal",
+        "focus",
+        "focus_tree",
+        "idea",
+        "navy_leader",
+        "scientist"
       ],
       "category": "lint",
       "examples": [
@@ -926,1000 +938,386 @@ window.HEARTY = {
           "title": null
         }
       ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_fire_only_once_no",
-      "notes": "Only reported in a block with a single `fire_only_once`: removing one of several could change which one the game uses.",
-      "summary": "`fire_only_once` defaults to `no`.",
-      "title": "`fire_only_once = no`",
-      "what": "Reports the field `fire_only_once = no` in a decision or an event.",
-      "why": "`fire_only_once` defaults to `no`, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "event"
-      ],
-      "category": "lint",
-      "examples": [
+      "fields": [
         {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "add_namespace = example\n\ncountry_event = {\n\tid = example.1\n\ttitle = example.1.t\n\tdesc = example.1.d\n\tpicture = GFX_report_event_generic_read_write\n\toption = {\n\t\tname = example.1.a\n\t\tadd_political_power = 50\n\t}\n}\n",
-              "before": "add_namespace = example\n\ncountry_event = {\n\tid = example.1\n\ttitle = example.1.t\n\tdesc = example.1.d\n\tpicture = GFX_report_event_generic_read_write\n\tis_triggered_only = no\n\toption = {\n\t\tname = example.1.a\n\t\tadd_political_power = 50\n\t}\n}\n",
-              "path": "events/example.txt"
-            }
+          "applies_to": [
+            "decision",
+            "event"
           ],
-          "output": "  <span class=\"fg3\">⚠</span> `is_triggered_only = no` has no effect: `is_triggered_only` defaults to `no`.\n   ╭─[<span class=\"fg6 bold underline\">events/example.txt:8:2</span>]\n <span class=\"dim\">7</span> │     picture = GFX_report_event_generic_read_write\n <span class=\"dim\">8</span> │     is_triggered_only = no\n   · <span class=\"fg5 bold\">    ───────────┬──────────</span>\n   ·                <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">9</span> │     option = {\n   ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
+          "field": "fire_only_once = no",
+          "id": "redundant_fire_only_once_no",
+          "repeatable": false,
+          "where": "Decision, Event",
+          "why": "`fire_only_once` defaults to `no`."
+        },
+        {
+          "applies_to": [
+            "event"
+          ],
+          "field": "is_triggered_only = no",
+          "id": "redundant_is_triggered_only_no",
+          "repeatable": false,
+          "where": "Event",
+          "why": "`is_triggered_only` defaults to `no`."
+        },
+        {
+          "applies_to": [
+            "event"
+          ],
+          "field": "hidden = no",
+          "id": "redundant_hidden_no",
+          "repeatable": false,
+          "where": "Event",
+          "why": "`hidden` defaults to `no`."
+        },
+        {
+          "applies_to": [
+            "event"
+          ],
+          "field": "major = no",
+          "id": "redundant_major_no",
+          "repeatable": false,
+          "where": "Event",
+          "why": "`major` defaults to `no`."
+        },
+        {
+          "applies_to": [
+            "focus"
+          ],
+          "field": "available_if_capitulated = no",
+          "id": "redundant_available_if_capitulated_no",
+          "repeatable": false,
+          "where": "Focus",
+          "why": "`available_if_capitulated` defaults to `no`."
+        },
+        {
+          "applies_to": [
+            "focus"
+          ],
+          "field": "cancel_if_invalid = yes",
+          "id": "redundant_cancel_if_invalid_yes",
+          "repeatable": false,
+          "where": "Focus",
+          "why": "`cancel_if_invalid` defaults to `yes` for focuses."
+        },
+        {
+          "applies_to": [
+            "focus"
+          ],
+          "field": "continue_if_invalid = no",
+          "id": "redundant_continue_if_invalid_no",
+          "repeatable": false,
+          "where": "Focus",
+          "why": "`continue_if_invalid` defaults to `no`."
+        },
+        {
+          "applies_to": [
+            "decision_category"
+          ],
+          "field": "visible_when_empty = no",
+          "id": "redundant_visible_when_empty_no",
+          "repeatable": false,
+          "where": "Decision category",
+          "why": "`visible_when_empty` defaults to `no`."
+        },
+        {
+          "applies_to": [
+            "decision"
+          ],
+          "field": "cancel_if_not_visible = no",
+          "id": "redundant_cancel_if_not_visible_no",
+          "repeatable": false,
+          "where": "Decision",
+          "why": "`cancel_if_not_visible` defaults to `no`."
+        },
+        {
+          "applies_to": [
+            "decision"
+          ],
+          "field": "is_good = no",
+          "id": "redundant_is_good_no",
+          "repeatable": false,
+          "where": "Decision",
+          "why": "`is_good` defaults to `no`."
+        },
+        {
+          "applies_to": [
+            "decision"
+          ],
+          "field": "selectable_mission = no",
+          "id": "redundant_selectable_mission_no",
+          "repeatable": false,
+          "where": "Decision",
+          "why": "`selectable_mission` defaults to `no`."
+        },
+        {
+          "applies_to": [
+            "focus_tree"
+          ],
+          "field": "default = no",
+          "id": "redundant_default_no",
+          "repeatable": false,
+          "where": "Focus tree",
+          "why": "A focus tree is only the default tree with `default = yes`."
+        },
+        {
+          "applies_to": [
+            "focus_tree"
+          ],
+          "field": "continuous_focus_position = { x = 50 y = 1000 }",
+          "id": "redundant_continuous_focus_position_x_50_y_1000",
+          "repeatable": false,
+          "where": "Focus tree",
+          "why": "The continuous focus palette defaults to `x = 50 y = 1000`."
+        },
+        {
+          "applies_to": [
+            "character"
+          ],
+          "field": "can_be_captured = yes",
+          "id": "redundant_can_be_captured_yes",
+          "repeatable": false,
+          "where": "Character",
+          "why": "`can_be_captured` defaults to `yes`."
+        },
+        {
+          "applies_to": [
+            "idea"
+          ],
+          "field": "picture = <block name>",
+          "id": "redundant_picture_own_name",
+          "repeatable": false,
+          "where": "Idea (with no `name` field)",
+          "why": "An idea already uses the sprite `GFX_idea_<its name>`."
+        },
+        {
+          "applies_to": [
+            "idea"
+          ],
+          "field": "allowed_civil_war = { always = no }",
+          "id": "redundant_allowed_civil_war_always_no",
+          "repeatable": false,
+          "where": "Idea",
+          "why": "`allowed_civil_war` is already never true when omitted."
+        },
+        {
+          "applies_to": [
+            "advisor",
+            "decision",
+            "decision_category",
+            "idea"
+          ],
+          "field": "allowed = { }",
+          "id": "redundant_allowed_empty",
+          "repeatable": false,
+          "where": "Advisor, Decision, Decision category, Idea",
+          "why": "An empty `allowed` is always true, the same as omitting it."
+        },
+        {
+          "applies_to": [
+            "advisor",
+            "decision",
+            "decision_category",
+            "idea"
+          ],
+          "field": "allowed = { always = yes }",
+          "id": "redundant_allowed_always_yes",
+          "repeatable": false,
+          "where": "Advisor, Decision, Decision category, Idea",
+          "why": "An omitted `allowed` is already always true."
+        },
+        {
+          "applies_to": [
+            "advisor",
+            "corps_commander",
+            "country_leader",
+            "decision",
+            "decision_category",
+            "field_marshal",
+            "idea",
+            "navy_leader",
+            "scientist"
+          ],
+          "field": "visible = { }",
+          "id": "redundant_visible_empty",
+          "repeatable": false,
+          "where": "Advisor, Corps commander, Country leader, Decision, Decision category, Field marshal, Idea, Navy leader, Scientist",
+          "why": "An empty `visible` is always true, the same as omitting it."
+        },
+        {
+          "applies_to": [
+            "advisor",
+            "corps_commander",
+            "country_leader",
+            "decision",
+            "decision_category",
+            "field_marshal",
+            "idea",
+            "navy_leader",
+            "scientist"
+          ],
+          "field": "visible = { always = yes }",
+          "id": "redundant_visible_always_yes",
+          "repeatable": false,
+          "where": "Advisor, Corps commander, Country leader, Decision, Decision category, Field marshal, Idea, Navy leader, Scientist",
+          "why": "An omitted `visible` is already always true."
+        },
+        {
+          "applies_to": [
+            "advisor",
+            "character",
+            "decision",
+            "decision_category",
+            "focus",
+            "idea"
+          ],
+          "field": "available = { }",
+          "id": "redundant_available_empty",
+          "repeatable": false,
+          "where": "Advisor, Character, Decision, Decision category, Focus, Idea",
+          "why": "An empty `available` is always true, the same as omitting it."
+        },
+        {
+          "applies_to": [
+            "event",
+            "event_option"
+          ],
+          "field": "trigger = { }",
+          "id": "redundant_trigger_empty",
+          "repeatable": false,
+          "where": "Event, Event option",
+          "why": "An empty `trigger` imposes no condition."
+        },
+        {
+          "applies_to": [
+            "event",
+            "event_option"
+          ],
+          "field": "trigger = { always = yes }",
+          "id": "redundant_trigger_always_yes",
+          "repeatable": false,
+          "where": "Event, Event option",
+          "why": "A `trigger` that is always true imposes no condition."
+        },
+        {
+          "applies_to": [
+            "focus"
+          ],
+          "field": "allow_branch = { }",
+          "id": "redundant_allow_branch_empty",
+          "repeatable": false,
+          "where": "Focus",
+          "why": "An empty `allow_branch` is always true, the same as omitting it."
+        },
+        {
+          "applies_to": [
+            "focus"
+          ],
+          "field": "allow_branch = { always = yes }",
+          "id": "redundant_allow_branch_always_yes",
+          "repeatable": false,
+          "where": "Focus",
+          "why": "An omitted `allow_branch` is already always true."
+        },
+        {
+          "applies_to": [
+            "idea"
+          ],
+          "field": "cancel = { always = no }",
+          "id": "redundant_cancel_always_no",
+          "repeatable": false,
+          "where": "Idea",
+          "why": "A `cancel` that is never true never removes the idea."
+        },
+        {
+          "applies_to": [
+            "focus"
+          ],
+          "field": "mutually_exclusive = { }",
+          "id": "redundant_mutually_exclusive_empty",
+          "repeatable": true,
+          "where": "Focus",
+          "why": "An empty `mutually_exclusive` excludes nothing."
+        },
+        {
+          "applies_to": [
+            "focus"
+          ],
+          "field": "offset = { x = 0 y = 0 }",
+          "id": "redundant_offset_x_0_y_0",
+          "repeatable": true,
+          "where": "Focus",
+          "why": "An offset of `x = 0 y = 0` does not move the focus."
+        },
+        {
+          "applies_to": [
+            "focus"
+          ],
+          "field": "ai_will_do = { factor = 1 }",
+          "id": "redundant_ai_will_do_factor_1",
+          "repeatable": false,
+          "where": "Focus",
+          "why": "Focuses have an AI weight of 1 by default."
+        },
+        {
+          "applies_to": [
+            "focus"
+          ],
+          "field": "ai_will_do = { base = 1 }",
+          "id": "redundant_ai_will_do_base_1",
+          "repeatable": false,
+          "where": "Focus",
+          "why": "Focuses have an AI weight of 1 by default."
+        },
+        {
+          "applies_to": [
+            "focus"
+          ],
+          "field": "ai_will_do = { }",
+          "id": "redundant_ai_will_do_empty",
+          "repeatable": false,
+          "where": "Focus",
+          "why": "An empty `ai_will_do` is 1, the focus default."
+        },
+        {
+          "applies_to": [
+            "event_option"
+          ],
+          "field": "ai_chance = { base = 1 }",
+          "id": "redundant_ai_chance_base_1",
+          "repeatable": false,
+          "where": "Event option",
+          "why": "An option's `ai_chance` is 1 when omitted."
+        },
+        {
+          "applies_to": [
+            "event_option"
+          ],
+          "field": "ai_chance = { factor = 1 }",
+          "id": "redundant_ai_chance_factor_1",
+          "repeatable": false,
+          "where": "Event option",
+          "why": "An option's `ai_chance` is 1 when omitted."
+        },
+        {
+          "applies_to": [
+            "event_option"
+          ],
+          "field": "ai_chance = { }",
+          "id": "redundant_ai_chance_empty",
+          "repeatable": false,
+          "where": "Event option",
+          "why": "An empty `ai_chance` is 1, the same as omitting it."
         }
       ],
       "fix": true,
       "group": "redundant",
-      "id": "redundant_is_triggered_only_no",
-      "notes": "Only reported in a block with a single `is_triggered_only`: removing one of several could change which one the game uses.",
-      "summary": "`is_triggered_only` defaults to `no`.",
-      "title": "`is_triggered_only = no`",
-      "what": "Reports the field `is_triggered_only = no` in an event.",
-      "why": "`is_triggered_only` defaults to `no`, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "event"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "add_namespace = example\n\ncountry_event = {\n\tid = example.1\n\ttitle = example.1.t\n\tdesc = example.1.d\n\tpicture = GFX_report_event_generic_read_write\n\tis_triggered_only = yes\n\toption = {\n\t\tname = example.1.a\n\t\tadd_political_power = 50\n\t}\n}\n",
-              "before": "add_namespace = example\n\ncountry_event = {\n\tid = example.1\n\ttitle = example.1.t\n\tdesc = example.1.d\n\tpicture = GFX_report_event_generic_read_write\n\tis_triggered_only = yes\n\thidden = no\n\toption = {\n\t\tname = example.1.a\n\t\tadd_political_power = 50\n\t}\n}\n",
-              "path": "events/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `hidden = no` has no effect: `hidden` defaults to `no`.\n    ╭─[<span class=\"fg6 bold underline\">events/example.txt:9:2</span>]\n <span class=\"dim\"> 8</span> │     is_triggered_only = yes\n <span class=\"dim\"> 9</span> │     hidden = no\n    · <span class=\"fg5 bold\">    ─────┬─────</span>\n    ·          <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">10</span> │     option = {\n    ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_hidden_no",
-      "notes": "Only reported in a block with a single `hidden`: removing one of several could change which one the game uses.",
-      "summary": "`hidden` defaults to `no`.",
-      "title": "`hidden = no`",
-      "what": "Reports the field `hidden = no` in an event.",
-      "why": "`hidden` defaults to `no`, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "event"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "add_namespace = example\n\ncountry_event = {\n\tid = example.1\n\ttitle = example.1.t\n\tdesc = example.1.d\n\tpicture = GFX_report_event_generic_read_write\n\tis_triggered_only = yes\n\toption = {\n\t\tname = example.1.a\n\t\tadd_political_power = 50\n\t}\n}\n",
-              "before": "add_namespace = example\n\ncountry_event = {\n\tid = example.1\n\ttitle = example.1.t\n\tdesc = example.1.d\n\tpicture = GFX_report_event_generic_read_write\n\tmajor = no\n\tis_triggered_only = yes\n\toption = {\n\t\tname = example.1.a\n\t\tadd_political_power = 50\n\t}\n}\n",
-              "path": "events/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `major = no` has no effect: `major` defaults to `no`.\n   ╭─[<span class=\"fg6 bold underline\">events/example.txt:8:2</span>]\n <span class=\"dim\">7</span> │     picture = GFX_report_event_generic_read_write\n <span class=\"dim\">8</span> │     major = no\n   · <span class=\"fg5 bold\">    ─────┬────</span>\n   ·          <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">9</span> │     is_triggered_only = yes\n   ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_major_no",
-      "notes": "Only reported in a block with a single `major`: removing one of several could change which one the game uses.",
-      "summary": "`major` defaults to `no`.",
-      "title": "`major = no`",
-      "what": "Reports the field `major = no` in an event.",
-      "why": "`major` defaults to `no`, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "focus"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "focus_tree = {\n\tid = EXA_focus_tree\n\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\ticon = GFX_goal_generic_political_pressure\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t\tcompletion_reward = { add_political_power = 120 }\n\t}\n}\n",
-              "before": "focus_tree = {\n\tid = EXA_focus_tree\n\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\ticon = GFX_goal_generic_political_pressure\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t\tavailable_if_capitulated = no\n\t\tcompletion_reward = { add_political_power = 120 }\n\t}\n}\n",
-              "path": "common/national_focus/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `available_if_capitulated = no` has no effect: `available_if_capitulated` defaults to `no`.\n    ╭─[<span class=\"fg6 bold underline\">common/national_focus/example.txt:10:3</span>]\n <span class=\"dim\"> 9</span> │         cost = 10\n <span class=\"dim\">10</span> │         available_if_capitulated = no\n    · <span class=\"fg5 bold\">        ──────────────┬──────────────</span>\n    ·                       <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">11</span> │         completion_reward = { add_political_power = 120 }\n    ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_available_if_capitulated_no",
-      "notes": "Only reported in a block with a single `available_if_capitulated`: removing one of several could change which one the game uses.",
-      "summary": "`available_if_capitulated` defaults to `no`.",
-      "title": "`available_if_capitulated = no`",
-      "what": "Reports the field `available_if_capitulated = no` in a focus.",
-      "why": "`available_if_capitulated` defaults to `no`, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "focus"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "focus_tree = {\n\tid = EXA_focus_tree\n\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\ticon = GFX_goal_generic_political_pressure\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t\tcompletion_reward = { add_political_power = 120 }\n\t}\n}\n",
-              "before": "focus_tree = {\n\tid = EXA_focus_tree\n\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\ticon = GFX_goal_generic_political_pressure\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t\tcancel_if_invalid = yes\n\t\tcompletion_reward = { add_political_power = 120 }\n\t}\n}\n",
-              "path": "common/national_focus/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `cancel_if_invalid = yes` has no effect: `cancel_if_invalid` defaults to `yes` for focuses.\n    ╭─[<span class=\"fg6 bold underline\">common/national_focus/example.txt:10:3</span>]\n <span class=\"dim\"> 9</span> │         cost = 10\n <span class=\"dim\">10</span> │         cancel_if_invalid = yes\n    · <span class=\"fg5 bold\">        ───────────┬───────────</span>\n    ·                    <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">11</span> │         completion_reward = { add_political_power = 120 }\n    ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_cancel_if_invalid_yes",
-      "notes": "Only reported in a block with a single `cancel_if_invalid`: removing one of several could change which one the game uses.",
-      "summary": "`cancel_if_invalid` defaults to `yes` for focuses.",
-      "title": "`cancel_if_invalid = yes`",
-      "what": "Reports the field `cancel_if_invalid = yes` in a focus.",
-      "why": "`cancel_if_invalid` defaults to `yes` for focuses, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "focus"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "focus_tree = {\n\tid = EXA_focus_tree\n\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\ticon = GFX_goal_generic_political_pressure\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t\tcompletion_reward = { add_political_power = 120 }\n\t}\n}\n",
-              "before": "focus_tree = {\n\tid = EXA_focus_tree\n\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\ticon = GFX_goal_generic_political_pressure\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t\tcontinue_if_invalid = no\n\t\tcompletion_reward = { add_political_power = 120 }\n\t}\n}\n",
-              "path": "common/national_focus/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `continue_if_invalid = no` has no effect: `continue_if_invalid` defaults to `no`.\n    ╭─[<span class=\"fg6 bold underline\">common/national_focus/example.txt:10:3</span>]\n <span class=\"dim\"> 9</span> │         cost = 10\n <span class=\"dim\">10</span> │         continue_if_invalid = no\n    · <span class=\"fg5 bold\">        ────────────┬───────────</span>\n    ·                     <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">11</span> │         completion_reward = { add_political_power = 120 }\n    ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_continue_if_invalid_no",
-      "notes": "Only reported in a block with a single `continue_if_invalid`: removing one of several could change which one the game uses.",
-      "summary": "`continue_if_invalid` defaults to `no`.",
-      "title": "`continue_if_invalid = no`",
-      "what": "Reports the field `continue_if_invalid = no` in a focus.",
-      "why": "`continue_if_invalid` defaults to `no`, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "decision_category"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "EXA_decisions = {\n\ticon = generic_industry\n\tpicture = GFX_decision_cat_generic_industry\n\tallowed = { tag = EXA }\n}\n",
-              "before": "EXA_decisions = {\n\ticon = generic_industry\n\tpicture = GFX_decision_cat_generic_industry\n\tallowed = { tag = EXA }\n\tvisible_when_empty = no\n}\n",
-              "path": "common/decisions/categories/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `visible_when_empty = no` has no effect: `visible_when_empty` defaults to `no`.\n   ╭─[<span class=\"fg6 bold underline\">common/decisions/categories/example.txt:5:2</span>]\n <span class=\"dim\">4</span> │     allowed = { tag = EXA }\n <span class=\"dim\">5</span> │     visible_when_empty = no\n   · <span class=\"fg5 bold\">    ───────────┬───────────</span>\n   ·                <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">6</span> │ }\n   ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_visible_when_empty_no",
-      "notes": "Only reported in a block with a single `visible_when_empty`: removing one of several could change which one the game uses.",
-      "summary": "`visible_when_empty` defaults to `no`.",
-      "title": "`visible_when_empty = no`",
-      "what": "Reports the field `visible_when_empty = no` in a decision category.",
-      "why": "`visible_when_empty` defaults to `no`, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "decision"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "EXA_decisions = {\n\tEXA_build_factory = {\n\t\ticon = generic_industry\n\t\tavailable = { has_war = no }\n\t\tcost = 50\n\t\tcomplete_effect = {\n\t\t\tadd_offsite_building = { type = industrial_complex level = 1 }\n\t\t}\n\t}\n}\n",
-              "before": "EXA_decisions = {\n\tEXA_build_factory = {\n\t\ticon = generic_industry\n\t\tavailable = { has_war = no }\n\t\tcost = 50\n\t\tcancel_if_not_visible = no\n\t\tcomplete_effect = {\n\t\t\tadd_offsite_building = { type = industrial_complex level = 1 }\n\t\t}\n\t}\n}\n",
-              "path": "common/decisions/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `cancel_if_not_visible = no` has no effect: `cancel_if_not_visible` defaults to `no`.\n   ╭─[<span class=\"fg6 bold underline\">common/decisions/example.txt:6:3</span>]\n <span class=\"dim\">5</span> │         cost = 50\n <span class=\"dim\">6</span> │         cancel_if_not_visible = no\n   · <span class=\"fg5 bold\">        ─────────────┬────────────</span>\n   ·                      <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">7</span> │         complete_effect = {\n   ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_cancel_if_not_visible_no",
-      "notes": "Only reported in a block with a single `cancel_if_not_visible`: removing one of several could change which one the game uses.",
-      "summary": "`cancel_if_not_visible` defaults to `no`.",
-      "title": "`cancel_if_not_visible = no`",
-      "what": "Reports the field `cancel_if_not_visible = no` in a decision.",
-      "why": "`cancel_if_not_visible` defaults to `no`, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "decision"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "EXA_decisions = {\n\tEXA_build_factory = {\n\t\ticon = generic_industry\n\t\tavailable = { has_war = no }\n\t\tcost = 50\n\t\tcomplete_effect = {\n\t\t\tadd_offsite_building = { type = industrial_complex level = 1 }\n\t\t}\n\t}\n}\n",
-              "before": "EXA_decisions = {\n\tEXA_build_factory = {\n\t\ticon = generic_industry\n\t\tavailable = { has_war = no }\n\t\tcost = 50\n\t\tis_good = no\n\t\tcomplete_effect = {\n\t\t\tadd_offsite_building = { type = industrial_complex level = 1 }\n\t\t}\n\t}\n}\n",
-              "path": "common/decisions/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `is_good = no` has no effect: `is_good` defaults to `no`.\n   ╭─[<span class=\"fg6 bold underline\">common/decisions/example.txt:6:3</span>]\n <span class=\"dim\">5</span> │         cost = 50\n <span class=\"dim\">6</span> │         is_good = no\n   · <span class=\"fg5 bold\">        ──────┬─────</span>\n   ·               <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">7</span> │         complete_effect = {\n   ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_is_good_no",
-      "notes": "Only reported in a block with a single `is_good`: removing one of several could change which one the game uses.",
-      "summary": "`is_good` defaults to `no`.",
-      "title": "`is_good = no`",
-      "what": "Reports the field `is_good = no` in a decision.",
-      "why": "`is_good` defaults to `no`, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "decision"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "EXA_decisions = {\n\tEXA_build_factory = {\n\t\ticon = generic_industry\n\t\tavailable = { has_war = no }\n\t\tcost = 50\n\t\tcomplete_effect = {\n\t\t\tadd_offsite_building = { type = industrial_complex level = 1 }\n\t\t}\n\t}\n}\n",
-              "before": "EXA_decisions = {\n\tEXA_build_factory = {\n\t\ticon = generic_industry\n\t\tavailable = { has_war = no }\n\t\tcost = 50\n\t\tselectable_mission = no\n\t\tcomplete_effect = {\n\t\t\tadd_offsite_building = { type = industrial_complex level = 1 }\n\t\t}\n\t}\n}\n",
-              "path": "common/decisions/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `selectable_mission = no` has no effect: `selectable_mission` defaults to `no`.\n   ╭─[<span class=\"fg6 bold underline\">common/decisions/example.txt:6:3</span>]\n <span class=\"dim\">5</span> │         cost = 50\n <span class=\"dim\">6</span> │         selectable_mission = no\n   · <span class=\"fg5 bold\">        ───────────┬───────────</span>\n   ·                    <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">7</span> │         complete_effect = {\n   ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_selectable_mission_no",
-      "notes": "Only reported in a block with a single `selectable_mission`: removing one of several could change which one the game uses.",
-      "summary": "`selectable_mission` defaults to `no`.",
-      "title": "`selectable_mission = no`",
-      "what": "Reports the field `selectable_mission = no` in a decision.",
-      "why": "`selectable_mission` defaults to `no`, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "focus_tree"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "focus_tree = {\n\tid = EXA_focus_tree\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t}\n}\n",
-              "before": "focus_tree = {\n\tid = EXA_focus_tree\n\tdefault = no\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t}\n}\n",
-              "path": "common/national_focus/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `default = no` has no effect: a focus tree is only the default tree with `default = yes`.\n   ╭─[<span class=\"fg6 bold underline\">common/national_focus/example.txt:3:2</span>]\n <span class=\"dim\">2</span> │     id = EXA_focus_tree\n <span class=\"dim\">3</span> │     default = no\n   · <span class=\"fg5 bold\">    ──────┬─────</span>\n   ·           <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">4</span> │     focus = {\n   ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_default_no",
-      "notes": "Only reported in a block with a single `default`: removing one of several could change which one the game uses.",
-      "summary": "A focus tree is only the default tree with `default = yes`.",
-      "title": "`default = no`",
-      "what": "Reports the field `default = no` in a focus tree.",
-      "why": "A focus tree is only the default tree with `default = yes`, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "focus_tree"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "focus_tree = {\n\tid = EXA_focus_tree\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t}\n}\n",
-              "before": "focus_tree = {\n\tid = EXA_focus_tree\n\tcontinuous_focus_position = { x = 50 y = 1000 }\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t}\n}\n",
-              "path": "common/national_focus/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `continuous_focus_position = { x = 50 y = 1000 }` has no effect: the continuous focus palette defaults to `x = 50 y = 1000`.\n   ╭─[<span class=\"fg6 bold underline\">common/national_focus/example.txt:3:2</span>]\n <span class=\"dim\">2</span> │     id = EXA_focus_tree\n <span class=\"dim\">3</span> │     continuous_focus_position = { x = 50 y = 1000 }\n   · <span class=\"fg5 bold\">    ───────────────────────┬───────────────────────</span>\n   ·                            <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">4</span> │     focus = {\n   ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_continuous_focus_position_x_50_y_1000",
-      "notes": "Only reported in a block with a single `continuous_focus_position`: removing one of several could change which one the game uses.",
-      "summary": "The continuous focus palette defaults to `x = 50 y = 1000`.",
-      "title": "`continuous_focus_position = { x = 50 y = 1000 }`",
-      "what": "Reports the field `continuous_focus_position = { x = 50 y = 1000 }` in a focus tree.",
-      "why": "The continuous focus palette defaults to `x = 50 y = 1000`, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "character"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "characters = {\n\tEXA_john_smith = {\n\t\tname = EXA_john_smith\n\t\tportraits = {\n\t\t\tcivilian = { large = GFX_portrait_generic }\n\t\t}\n\t\tcountry_leader = {\n\t\t\tideology = liberalism\n\t\t\texpire = \"1965.1.1.1\"\n\t\t}\n\t}\n}\n",
-              "before": "characters = {\n\tEXA_john_smith = {\n\t\tname = EXA_john_smith\n\t\tportraits = {\n\t\t\tcivilian = { large = GFX_portrait_generic }\n\t\t}\n\t\tcountry_leader = {\n\t\t\tideology = liberalism\n\t\t\texpire = \"1965.1.1.1\"\n\t\t}\n\t\tcan_be_captured = yes\n\t}\n}\n",
-              "path": "common/characters/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `can_be_captured = yes` has no effect: `can_be_captured` defaults to `yes`.\n    ╭─[<span class=\"fg6 bold underline\">common/characters/example.txt:11:3</span>]\n <span class=\"dim\">10</span> │         }\n <span class=\"dim\">11</span> │         can_be_captured = yes\n    · <span class=\"fg5 bold\">        ──────────┬──────────</span>\n    ·                   <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">12</span> │     }\n    ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_can_be_captured_yes",
-      "notes": "Only reported in a block with a single `can_be_captured`: removing one of several could change which one the game uses.",
-      "summary": "`can_be_captured` defaults to `yes`.",
-      "title": "`can_be_captured = yes`",
-      "what": "Reports the field `can_be_captured = yes` in a character.",
-      "why": "`can_be_captured` defaults to `yes`, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "idea"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "ideas = {\n\tcountry = {\n\t\tEXA_war_economy = {\n\t\t\tallowed = { original_tag = EXA }\n\t\t\tmodifier = { consumer_goods_factor = -0.1 }\n\t\t}\n\t}\n}\n",
-              "before": "ideas = {\n\tcountry = {\n\t\tEXA_war_economy = {\n\t\t\tpicture = EXA_war_economy\n\t\t\tallowed = { original_tag = EXA }\n\t\t\tmodifier = { consumer_goods_factor = -0.1 }\n\t\t}\n\t}\n}\n",
-              "path": "common/ideas/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `picture = EXA_war_economy` has no effect: an idea already uses the sprite `GFX_idea_&lt;its name&gt;`.\n   ╭─[<span class=\"fg6 bold underline\">common/ideas/example.txt:4:4</span>]\n <span class=\"dim\">3</span> │         EXA_war_economy = {\n <span class=\"dim\">4</span> │             picture = EXA_war_economy\n   · <span class=\"fg5 bold\">            ────────────┬────────────</span>\n   ·                         <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">5</span> │             allowed = { original_tag = EXA }\n   ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_picture_own_name",
-      "notes": "Only reported in a block with a single `picture`: removing one of several could change which one the game uses.",
-      "summary": "An idea already uses the sprite `GFX_idea_<its name>`.",
-      "title": "`picture = <block name>`",
-      "what": "Reports a `picture` set to the name of the block it's in, in an idea with no `name` field.",
-      "why": "An idea already uses the sprite `GFX_idea_<its name>`, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "idea"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "ideas = {\n\tcountry = {\n\t\tEXA_war_economy = {\n\t\t\tallowed = { original_tag = EXA }\n\t\t\tmodifier = { consumer_goods_factor = -0.1 }\n\t\t}\n\t}\n}\n",
-              "before": "ideas = {\n\tcountry = {\n\t\tEXA_war_economy = {\n\t\t\tallowed = { original_tag = EXA }\n\t\t\tallowed_civil_war = { always = no }\n\t\t\tmodifier = { consumer_goods_factor = -0.1 }\n\t\t}\n\t}\n}\n",
-              "path": "common/ideas/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `allowed_civil_war = { always = no }` has no effect: `allowed_civil_war` is already never true when omitted.\n   ╭─[<span class=\"fg6 bold underline\">common/ideas/example.txt:5:4</span>]\n <span class=\"dim\">4</span> │             allowed = { original_tag = EXA }\n <span class=\"dim\">5</span> │             allowed_civil_war = { always = no }\n   · <span class=\"fg5 bold\">            ─────────────────┬─────────────────</span>\n   ·                              <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">6</span> │             modifier = { consumer_goods_factor = -0.1 }\n   ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_allowed_civil_war_always_no",
-      "notes": "Only reported in a block with a single `allowed_civil_war`: removing one of several could change which one the game uses.",
-      "summary": "`allowed_civil_war` is already never true when omitted.",
-      "title": "`allowed_civil_war = { always = no }`",
-      "what": "Reports the field `allowed_civil_war = { always = no }` in an idea.",
-      "why": "`allowed_civil_war` is already never true when omitted, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "advisor",
-        "decision",
-        "decision_category",
-        "idea"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "EXA_decisions = {\n\tEXA_build_factory = {\n\t\ticon = generic_industry\n\t\tavailable = { has_war = no }\n\t\tcost = 50\n\t\tcomplete_effect = {\n\t\t\tadd_offsite_building = { type = industrial_complex level = 1 }\n\t\t}\n\t}\n}\n",
-              "before": "EXA_decisions = {\n\tEXA_build_factory = {\n\t\ticon = generic_industry\n\t\tallowed = { }\n\t\tavailable = { has_war = no }\n\t\tcost = 50\n\t\tcomplete_effect = {\n\t\t\tadd_offsite_building = { type = industrial_complex level = 1 }\n\t\t}\n\t}\n}\n",
-              "path": "common/decisions/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `allowed = { }` has no effect: an empty `allowed` is always true, the same as omitting it.\n   ╭─[<span class=\"fg6 bold underline\">common/decisions/example.txt:4:3</span>]\n <span class=\"dim\">3</span> │         icon = generic_industry\n <span class=\"dim\">4</span> │         allowed = { }\n   · <span class=\"fg5 bold\">        ──────┬──────</span>\n   ·               <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">5</span> │         available = { has_war = no }\n   ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_allowed_empty",
-      "notes": "Only reported in a block with a single `allowed`: removing one of several could change which one the game uses.",
-      "summary": "An empty `allowed` is always true, the same as omitting it.",
-      "title": "`allowed = { }`",
-      "what": "Reports the field `allowed = { }` in an advisor, a decision, a decision category or an idea.",
-      "why": "An empty `allowed` is always true, the same as omitting it, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "advisor",
-        "decision",
-        "decision_category",
-        "idea"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "EXA_decisions = {\n\tEXA_build_factory = {\n\t\ticon = generic_industry\n\t\tavailable = { has_war = no }\n\t\tcost = 50\n\t\tcomplete_effect = {\n\t\t\tadd_offsite_building = { type = industrial_complex level = 1 }\n\t\t}\n\t}\n}\n",
-              "before": "EXA_decisions = {\n\tEXA_build_factory = {\n\t\ticon = generic_industry\n\t\tallowed = { always = yes }\n\t\tavailable = { has_war = no }\n\t\tcost = 50\n\t\tcomplete_effect = {\n\t\t\tadd_offsite_building = { type = industrial_complex level = 1 }\n\t\t}\n\t}\n}\n",
-              "path": "common/decisions/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `allowed = { always = yes }` has no effect: an omitted `allowed` is already always true.\n   ╭─[<span class=\"fg6 bold underline\">common/decisions/example.txt:4:3</span>]\n <span class=\"dim\">3</span> │         icon = generic_industry\n <span class=\"dim\">4</span> │         allowed = { always = yes }\n   · <span class=\"fg5 bold\">        ─────────────┬────────────</span>\n   ·                      <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">5</span> │         available = { has_war = no }\n   ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_allowed_always_yes",
-      "notes": "Only reported in a block with a single `allowed`: removing one of several could change which one the game uses.",
-      "summary": "An omitted `allowed` is already always true.",
-      "title": "`allowed = { always = yes }`",
-      "what": "Reports the field `allowed = { always = yes }` in an advisor, a decision, a decision category or an idea.",
-      "why": "An omitted `allowed` is already always true, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "advisor",
-        "corps_commander",
-        "country_leader",
-        "decision",
-        "decision_category",
-        "field_marshal",
-        "idea",
-        "navy_leader",
-        "scientist"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "EXA_decisions = {\n\tEXA_build_factory = {\n\t\ticon = generic_industry\n\t\tavailable = { has_war = no }\n\t\tcost = 50\n\t\tcomplete_effect = {\n\t\t\tadd_offsite_building = { type = industrial_complex level = 1 }\n\t\t}\n\t}\n}\n",
-              "before": "EXA_decisions = {\n\tEXA_build_factory = {\n\t\ticon = generic_industry\n\t\tvisible = { }\n\t\tavailable = { has_war = no }\n\t\tcost = 50\n\t\tcomplete_effect = {\n\t\t\tadd_offsite_building = { type = industrial_complex level = 1 }\n\t\t}\n\t}\n}\n",
-              "path": "common/decisions/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `visible = { }` has no effect: an empty `visible` is always true, the same as omitting it.\n   ╭─[<span class=\"fg6 bold underline\">common/decisions/example.txt:4:3</span>]\n <span class=\"dim\">3</span> │         icon = generic_industry\n <span class=\"dim\">4</span> │         visible = { }\n   · <span class=\"fg5 bold\">        ──────┬──────</span>\n   ·               <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">5</span> │         available = { has_war = no }\n   ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_visible_empty",
-      "notes": "Only reported in a block with a single `visible`: removing one of several could change which one the game uses.",
-      "summary": "An empty `visible` is always true, the same as omitting it.",
-      "title": "`visible = { }`",
-      "what": "Reports the field `visible = { }` in an advisor, a corps commander, a country leader, a decision, a decision category, a field marshal, an idea, a navy leader or a scientist.",
-      "why": "An empty `visible` is always true, the same as omitting it, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "advisor",
-        "corps_commander",
-        "country_leader",
-        "decision",
-        "decision_category",
-        "field_marshal",
-        "idea",
-        "navy_leader",
-        "scientist"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "EXA_decisions = {\n\tEXA_build_factory = {\n\t\ticon = generic_industry\n\t\tavailable = { has_war = no }\n\t\tcost = 50\n\t\tcomplete_effect = {\n\t\t\tadd_offsite_building = { type = industrial_complex level = 1 }\n\t\t}\n\t}\n}\n",
-              "before": "EXA_decisions = {\n\tEXA_build_factory = {\n\t\ticon = generic_industry\n\t\tvisible = { always = yes }\n\t\tavailable = { has_war = no }\n\t\tcost = 50\n\t\tcomplete_effect = {\n\t\t\tadd_offsite_building = { type = industrial_complex level = 1 }\n\t\t}\n\t}\n}\n",
-              "path": "common/decisions/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `visible = { always = yes }` has no effect: an omitted `visible` is already always true.\n   ╭─[<span class=\"fg6 bold underline\">common/decisions/example.txt:4:3</span>]\n <span class=\"dim\">3</span> │         icon = generic_industry\n <span class=\"dim\">4</span> │         visible = { always = yes }\n   · <span class=\"fg5 bold\">        ─────────────┬────────────</span>\n   ·                      <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">5</span> │         available = { has_war = no }\n   ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_visible_always_yes",
-      "notes": "Only reported in a block with a single `visible`: removing one of several could change which one the game uses.",
-      "summary": "An omitted `visible` is already always true.",
-      "title": "`visible = { always = yes }`",
-      "what": "Reports the field `visible = { always = yes }` in an advisor, a corps commander, a country leader, a decision, a decision category, a field marshal, an idea, a navy leader or a scientist.",
-      "why": "An omitted `visible` is already always true, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "advisor",
-        "character",
-        "decision",
-        "decision_category",
-        "focus",
-        "idea"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "focus_tree = {\n\tid = EXA_focus_tree\n\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\ticon = GFX_goal_generic_political_pressure\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t\tcompletion_reward = { add_political_power = 120 }\n\t}\n}\n",
-              "before": "focus_tree = {\n\tid = EXA_focus_tree\n\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\ticon = GFX_goal_generic_political_pressure\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t\tavailable = { }\n\t\tcompletion_reward = { add_political_power = 120 }\n\t}\n}\n",
-              "path": "common/national_focus/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `available = { }` has no effect: an empty `available` is always true, the same as omitting it.\n    ╭─[<span class=\"fg6 bold underline\">common/national_focus/example.txt:10:3</span>]\n <span class=\"dim\"> 9</span> │         cost = 10\n <span class=\"dim\">10</span> │         available = { }\n    · <span class=\"fg5 bold\">        ───────┬───────</span>\n    ·                <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">11</span> │         completion_reward = { add_political_power = 120 }\n    ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_available_empty",
-      "notes": "Only reported in a block with a single `available`: removing one of several could change which one the game uses.",
-      "summary": "An empty `available` is always true, the same as omitting it.",
-      "title": "`available = { }`",
-      "what": "Reports the field `available = { }` in an advisor, a character, a decision, a decision category, a focus or an idea.",
-      "why": "An empty `available` is always true, the same as omitting it, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "event",
-        "event_option"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "add_namespace = example\n\ncountry_event = {\n\tid = example.1\n\ttitle = example.1.t\n\tdesc = example.1.d\n\tpicture = GFX_report_event_generic_read_write\n\tis_triggered_only = yes\n\toption = {\n\t\tname = example.1.a\n\t\tadd_political_power = 50\n\t}\n}\n",
-              "before": "add_namespace = example\n\ncountry_event = {\n\tid = example.1\n\ttitle = example.1.t\n\tdesc = example.1.d\n\tpicture = GFX_report_event_generic_read_write\n\tis_triggered_only = yes\n\ttrigger = { }\n\toption = {\n\t\tname = example.1.a\n\t\tadd_political_power = 50\n\t}\n}\n",
-              "path": "events/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `trigger = { }` has no effect: an empty `trigger` imposes no condition.\n    ╭─[<span class=\"fg6 bold underline\">events/example.txt:9:2</span>]\n <span class=\"dim\"> 8</span> │     is_triggered_only = yes\n <span class=\"dim\"> 9</span> │     trigger = { }\n    · <span class=\"fg5 bold\">    ──────┬──────</span>\n    ·           <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">10</span> │     option = {\n    ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_trigger_empty",
-      "notes": "Only reported in a block with a single `trigger`: removing one of several could change which one the game uses.",
-      "summary": "An empty `trigger` imposes no condition.",
-      "title": "`trigger = { }`",
-      "what": "Reports the field `trigger = { }` in an event or an event option.",
-      "why": "An empty `trigger` imposes no condition, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "event",
-        "event_option"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "add_namespace = example\n\ncountry_event = {\n\tid = example.1\n\ttitle = example.1.t\n\tdesc = example.1.d\n\tpicture = GFX_report_event_generic_read_write\n\tis_triggered_only = yes\n\toption = {\n\t\tname = example.1.a\n\t\tadd_political_power = 50\n\t}\n}\n",
-              "before": "add_namespace = example\n\ncountry_event = {\n\tid = example.1\n\ttitle = example.1.t\n\tdesc = example.1.d\n\tpicture = GFX_report_event_generic_read_write\n\tis_triggered_only = yes\n\ttrigger = { always = yes }\n\toption = {\n\t\tname = example.1.a\n\t\tadd_political_power = 50\n\t}\n}\n",
-              "path": "events/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `trigger = { always = yes }` has no effect: a `trigger` that is always true imposes no condition.\n    ╭─[<span class=\"fg6 bold underline\">events/example.txt:9:2</span>]\n <span class=\"dim\"> 8</span> │     is_triggered_only = yes\n <span class=\"dim\"> 9</span> │     trigger = { always = yes }\n    · <span class=\"fg5 bold\">    ─────────────┬────────────</span>\n    ·                  <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">10</span> │     option = {\n    ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_trigger_always_yes",
-      "notes": "Only reported in a block with a single `trigger`: removing one of several could change which one the game uses.",
-      "summary": "A `trigger` that is always true imposes no condition.",
-      "title": "`trigger = { always = yes }`",
-      "what": "Reports the field `trigger = { always = yes }` in an event or an event option.",
-      "why": "A `trigger` that is always true imposes no condition, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "focus"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "focus_tree = {\n\tid = EXA_focus_tree\n\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\ticon = GFX_goal_generic_political_pressure\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t\tcompletion_reward = { add_political_power = 120 }\n\t}\n}\n",
-              "before": "focus_tree = {\n\tid = EXA_focus_tree\n\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\ticon = GFX_goal_generic_political_pressure\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t\tallow_branch = { }\n\t\tcompletion_reward = { add_political_power = 120 }\n\t}\n}\n",
-              "path": "common/national_focus/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `allow_branch = { }` has no effect: an empty `allow_branch` is always true, the same as omitting it.\n    ╭─[<span class=\"fg6 bold underline\">common/national_focus/example.txt:10:3</span>]\n <span class=\"dim\"> 9</span> │         cost = 10\n <span class=\"dim\">10</span> │         allow_branch = { }\n    · <span class=\"fg5 bold\">        ─────────┬────────</span>\n    ·                  <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">11</span> │         completion_reward = { add_political_power = 120 }\n    ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_allow_branch_empty",
-      "notes": "Only reported in a block with a single `allow_branch`: removing one of several could change which one the game uses.",
-      "summary": "An empty `allow_branch` is always true, the same as omitting it.",
-      "title": "`allow_branch = { }`",
-      "what": "Reports the field `allow_branch = { }` in a focus.",
-      "why": "An empty `allow_branch` is always true, the same as omitting it, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "focus"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "focus_tree = {\n\tid = EXA_focus_tree\n\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\ticon = GFX_goal_generic_political_pressure\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t\tcompletion_reward = { add_political_power = 120 }\n\t}\n}\n",
-              "before": "focus_tree = {\n\tid = EXA_focus_tree\n\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\ticon = GFX_goal_generic_political_pressure\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t\tallow_branch = { always = yes }\n\t\tcompletion_reward = { add_political_power = 120 }\n\t}\n}\n",
-              "path": "common/national_focus/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `allow_branch = { always = yes }` has no effect: an omitted `allow_branch` is already always true.\n    ╭─[<span class=\"fg6 bold underline\">common/national_focus/example.txt:10:3</span>]\n <span class=\"dim\"> 9</span> │         cost = 10\n <span class=\"dim\">10</span> │         allow_branch = { always = yes }\n    · <span class=\"fg5 bold\">        ───────────────┬───────────────</span>\n    ·                        <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">11</span> │         completion_reward = { add_political_power = 120 }\n    ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_allow_branch_always_yes",
-      "notes": "Only reported in a block with a single `allow_branch`: removing one of several could change which one the game uses.",
-      "summary": "An omitted `allow_branch` is already always true.",
-      "title": "`allow_branch = { always = yes }`",
-      "what": "Reports the field `allow_branch = { always = yes }` in a focus.",
-      "why": "An omitted `allow_branch` is already always true, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "idea"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "ideas = {\n\tcountry = {\n\t\tEXA_war_economy = {\n\t\t\tallowed = { original_tag = EXA }\n\t\t\tmodifier = { consumer_goods_factor = -0.1 }\n\t\t}\n\t}\n}\n",
-              "before": "ideas = {\n\tcountry = {\n\t\tEXA_war_economy = {\n\t\t\tallowed = { original_tag = EXA }\n\t\t\tcancel = { always = no }\n\t\t\tmodifier = { consumer_goods_factor = -0.1 }\n\t\t}\n\t}\n}\n",
-              "path": "common/ideas/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `cancel = { always = no }` has no effect: a `cancel` that is never true never removes the idea.\n   ╭─[<span class=\"fg6 bold underline\">common/ideas/example.txt:5:4</span>]\n <span class=\"dim\">4</span> │             allowed = { original_tag = EXA }\n <span class=\"dim\">5</span> │             cancel = { always = no }\n   · <span class=\"fg5 bold\">            ────────────┬───────────</span>\n   ·                         <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">6</span> │             modifier = { consumer_goods_factor = -0.1 }\n   ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_cancel_always_no",
-      "notes": "Only reported in a block with a single `cancel`: removing one of several could change which one the game uses.",
-      "summary": "A `cancel` that is never true never removes the idea.",
-      "title": "`cancel = { always = no }`",
-      "what": "Reports the field `cancel = { always = no }` in an idea.",
-      "why": "A `cancel` that is never true never removes the idea, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "focus"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "focus_tree = {\n\tid = EXA_focus_tree\n\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\ticon = GFX_goal_generic_political_pressure\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t\tcompletion_reward = { add_political_power = 120 }\n\t}\n}\n",
-              "before": "focus_tree = {\n\tid = EXA_focus_tree\n\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\ticon = GFX_goal_generic_political_pressure\n\t\tmutually_exclusive = { }\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t\tcompletion_reward = { add_political_power = 120 }\n\t}\n}\n",
-              "path": "common/national_focus/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `mutually_exclusive = { }` has no effect: an empty `mutually_exclusive` excludes nothing.\n   ╭─[<span class=\"fg6 bold underline\">common/national_focus/example.txt:7:3</span>]\n <span class=\"dim\">6</span> │         icon = GFX_goal_generic_political_pressure\n <span class=\"dim\">7</span> │         mutually_exclusive = { }\n   · <span class=\"fg5 bold\">        ────────────┬───────────</span>\n   ·                     <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">8</span> │         x = 5\n   ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_mutually_exclusive_empty",
-      "notes": "`mutually_exclusive` may appear several times in a block: each redundant one is reported.",
-      "summary": "An empty `mutually_exclusive` excludes nothing.",
-      "title": "`mutually_exclusive = { }`",
-      "what": "Reports the field `mutually_exclusive = { }` in a focus.",
-      "why": "An empty `mutually_exclusive` excludes nothing, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "focus"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "focus_tree = {\n\tid = EXA_focus_tree\n\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\ticon = GFX_goal_generic_political_pressure\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t\tcompletion_reward = { add_political_power = 120 }\n\t}\n}\n",
-              "before": "focus_tree = {\n\tid = EXA_focus_tree\n\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\ticon = GFX_goal_generic_political_pressure\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t\toffset = { x = 0 y = 0 }\n\t\tcompletion_reward = { add_political_power = 120 }\n\t}\n}\n",
-              "path": "common/national_focus/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `offset = { x = 0 y = 0 }` has no effect: an offset of `x = 0 y = 0` does not move the focus.\n    ╭─[<span class=\"fg6 bold underline\">common/national_focus/example.txt:10:3</span>]\n <span class=\"dim\"> 9</span> │         cost = 10\n <span class=\"dim\">10</span> │         offset = { x = 0 y = 0 }\n    · <span class=\"fg5 bold\">        ────────────┬───────────</span>\n    ·                     <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">11</span> │         completion_reward = { add_political_power = 120 }\n    ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_offset_x_0_y_0",
-      "notes": "`offset` may appear several times in a block: each redundant one is reported.",
-      "summary": "An offset of `x = 0 y = 0` does not move the focus.",
-      "title": "`offset = { x = 0 y = 0 }`",
-      "what": "Reports the field `offset = { x = 0 y = 0 }` in a focus.",
-      "why": "An offset of `x = 0 y = 0` does not move the focus, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "focus"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "focus_tree = {\n\tid = EXA_focus_tree\n\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\ticon = GFX_goal_generic_political_pressure\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t\tcompletion_reward = { add_political_power = 120 }\n\t}\n}\n",
-              "before": "focus_tree = {\n\tid = EXA_focus_tree\n\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\ticon = GFX_goal_generic_political_pressure\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t\tai_will_do = { factor = 1 }\n\t\tcompletion_reward = { add_political_power = 120 }\n\t}\n}\n",
-              "path": "common/national_focus/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `ai_will_do = { factor = 1 }` has no effect: focuses have an AI weight of 1 by default.\n    ╭─[<span class=\"fg6 bold underline\">common/national_focus/example.txt:10:3</span>]\n <span class=\"dim\"> 9</span> │         cost = 10\n <span class=\"dim\">10</span> │         ai_will_do = { factor = 1 }\n    · <span class=\"fg5 bold\">        ─────────────┬─────────────</span>\n    ·                      <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">11</span> │         completion_reward = { add_political_power = 120 }\n    ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_ai_will_do_factor_1",
-      "notes": "Only reported in a block with a single `ai_will_do`: removing one of several could change which one the game uses.",
-      "summary": "Focuses have an AI weight of 1 by default.",
-      "title": "`ai_will_do = { factor = 1 }`",
-      "what": "Reports the field `ai_will_do = { factor = 1 }` in a focus.",
-      "why": "Focuses have an AI weight of 1 by default, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "focus"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "focus_tree = {\n\tid = EXA_focus_tree\n\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\ticon = GFX_goal_generic_political_pressure\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t\tcompletion_reward = { add_political_power = 120 }\n\t}\n}\n",
-              "before": "focus_tree = {\n\tid = EXA_focus_tree\n\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\ticon = GFX_goal_generic_political_pressure\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t\tai_will_do = { base = 1 }\n\t\tcompletion_reward = { add_political_power = 120 }\n\t}\n}\n",
-              "path": "common/national_focus/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `ai_will_do = { base = 1 }` has no effect: focuses have an AI weight of 1 by default.\n    ╭─[<span class=\"fg6 bold underline\">common/national_focus/example.txt:10:3</span>]\n <span class=\"dim\"> 9</span> │         cost = 10\n <span class=\"dim\">10</span> │         ai_will_do = { base = 1 }\n    · <span class=\"fg5 bold\">        ────────────┬────────────</span>\n    ·                     <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">11</span> │         completion_reward = { add_political_power = 120 }\n    ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_ai_will_do_base_1",
-      "notes": "Only reported in a block with a single `ai_will_do`: removing one of several could change which one the game uses.",
-      "summary": "Focuses have an AI weight of 1 by default.",
-      "title": "`ai_will_do = { base = 1 }`",
-      "what": "Reports the field `ai_will_do = { base = 1 }` in a focus.",
-      "why": "Focuses have an AI weight of 1 by default, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "focus"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "focus_tree = {\n\tid = EXA_focus_tree\n\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\ticon = GFX_goal_generic_political_pressure\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t\tcompletion_reward = { add_political_power = 120 }\n\t}\n}\n",
-              "before": "focus_tree = {\n\tid = EXA_focus_tree\n\n\tfocus = {\n\t\tid = EXA_national_plan\n\t\ticon = GFX_goal_generic_political_pressure\n\t\tx = 5\n\t\ty = 0\n\t\tcost = 10\n\t\tai_will_do = { }\n\t\tcompletion_reward = { add_political_power = 120 }\n\t}\n}\n",
-              "path": "common/national_focus/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `ai_will_do = { }` has no effect: an empty `ai_will_do` is 1, the focus default.\n    ╭─[<span class=\"fg6 bold underline\">common/national_focus/example.txt:10:3</span>]\n <span class=\"dim\"> 9</span> │         cost = 10\n <span class=\"dim\">10</span> │         ai_will_do = { }\n    · <span class=\"fg5 bold\">        ────────┬───────</span>\n    ·                 <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">11</span> │         completion_reward = { add_political_power = 120 }\n    ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_ai_will_do_empty",
-      "notes": "Only reported in a block with a single `ai_will_do`: removing one of several could change which one the game uses.",
-      "summary": "An empty `ai_will_do` is 1, the focus default.",
-      "title": "`ai_will_do = { }`",
-      "what": "Reports the field `ai_will_do = { }` in a focus.",
-      "why": "An empty `ai_will_do` is 1, the focus default, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "event_option"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "add_namespace = example\n\ncountry_event = {\n\tid = example.1\n\ttitle = example.1.t\n\tdesc = example.1.d\n\tis_triggered_only = yes\n\toption = {\n\t\tname = example.1.a\n\t\tadd_political_power = 50\n\t}\n}\n",
-              "before": "add_namespace = example\n\ncountry_event = {\n\tid = example.1\n\ttitle = example.1.t\n\tdesc = example.1.d\n\tis_triggered_only = yes\n\toption = {\n\t\tname = example.1.a\n\t\tai_chance = { base = 1 }\n\t\tadd_political_power = 50\n\t}\n}\n",
-              "path": "events/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `ai_chance = { base = 1 }` has no effect: an option's `ai_chance` is 1 when omitted.\n    ╭─[<span class=\"fg6 bold underline\">events/example.txt:10:3</span>]\n <span class=\"dim\"> 9</span> │         name = example.1.a\n <span class=\"dim\">10</span> │         ai_chance = { base = 1 }\n    · <span class=\"fg5 bold\">        ────────────┬───────────</span>\n    ·                     <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">11</span> │         add_political_power = 50\n    ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_ai_chance_base_1",
-      "notes": "Only reported in a block with a single `ai_chance`: removing one of several could change which one the game uses.",
-      "summary": "An option's `ai_chance` is 1 when omitted.",
-      "title": "`ai_chance = { base = 1 }`",
-      "what": "Reports the field `ai_chance = { base = 1 }` in an event option.",
-      "why": "An option's `ai_chance` is 1 when omitted, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "event_option"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "add_namespace = example\n\ncountry_event = {\n\tid = example.1\n\ttitle = example.1.t\n\tdesc = example.1.d\n\tis_triggered_only = yes\n\toption = {\n\t\tname = example.1.a\n\t\tadd_political_power = 50\n\t}\n}\n",
-              "before": "add_namespace = example\n\ncountry_event = {\n\tid = example.1\n\ttitle = example.1.t\n\tdesc = example.1.d\n\tis_triggered_only = yes\n\toption = {\n\t\tname = example.1.a\n\t\tai_chance = { factor = 1 }\n\t\tadd_political_power = 50\n\t}\n}\n",
-              "path": "events/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `ai_chance = { factor = 1 }` has no effect: an option's `ai_chance` is 1 when omitted.\n    ╭─[<span class=\"fg6 bold underline\">events/example.txt:10:3</span>]\n <span class=\"dim\"> 9</span> │         name = example.1.a\n <span class=\"dim\">10</span> │         ai_chance = { factor = 1 }\n    · <span class=\"fg5 bold\">        ─────────────┬────────────</span>\n    ·                      <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">11</span> │         add_political_power = 50\n    ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_ai_chance_factor_1",
-      "notes": "Only reported in a block with a single `ai_chance`: removing one of several could change which one the game uses.",
-      "summary": "An option's `ai_chance` is 1 when omitted.",
-      "title": "`ai_chance = { factor = 1 }`",
-      "what": "Reports the field `ai_chance = { factor = 1 }` in an event option.",
-      "why": "An option's `ai_chance` is 1 when omitted, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
-    },
-    {
-      "applies_to": [
-        "event_option"
-      ],
-      "category": "lint",
-      "examples": [
-        {
-          "after_command": "hearty --fix",
-          "command": "hearty --lint",
-          "files": [
-            {
-              "after": "add_namespace = example\n\ncountry_event = {\n\tid = example.1\n\ttitle = example.1.t\n\tdesc = example.1.d\n\tis_triggered_only = yes\n\toption = {\n\t\tname = example.1.a\n\t\tadd_political_power = 50\n\t}\n}\n",
-              "before": "add_namespace = example\n\ncountry_event = {\n\tid = example.1\n\ttitle = example.1.t\n\tdesc = example.1.d\n\tis_triggered_only = yes\n\toption = {\n\t\tname = example.1.a\n\t\tai_chance = { }\n\t\tadd_political_power = 50\n\t}\n}\n",
-              "path": "events/example.txt"
-            }
-          ],
-          "output": "  <span class=\"fg3\">⚠</span> `ai_chance = { }` has no effect: an empty `ai_chance` is 1, the same as omitting it.\n    ╭─[<span class=\"fg6 bold underline\">events/example.txt:10:3</span>]\n <span class=\"dim\"> 9</span> │         name = example.1.a\n <span class=\"dim\">10</span> │         ai_chance = { }\n    · <span class=\"fg5 bold\">        ───────┬───────</span>\n    ·                <span class=\"fg5 bold\">╰── </span><span class=\"fg5 bold\">redundant</span>\n <span class=\"dim\">11</span> │         add_political_power = 50\n    ╰────\n<span class=\"fg6\">  help: </span>remove it, or run `hearty --fix`\n",
-          "title": null
-        }
-      ],
-      "fix": true,
-      "group": "redundant",
-      "id": "redundant_ai_chance_empty",
-      "notes": "Only reported in a block with a single `ai_chance`: removing one of several could change which one the game uses.",
-      "summary": "An empty `ai_chance` is 1, the same as omitting it.",
-      "title": "`ai_chance = { }`",
-      "what": "Reports the field `ai_chance = { }` in an event option.",
-      "why": "An empty `ai_chance` is 1, the same as omitting it, so the field changes nothing: it only makes the block longer, and a reader may take it to matter."
+      "id": "redundant_fields",
+      "notes": "- Only the definition block's own fields count, not those of a block nested in it: a decision's `fire_only_once`, not one inside its `complete_effect`.\n- Values compare as the game reads them: ASCII case-insensitively (`No` is `no`), quotes aside (`\"no\"` is `no`), and by value when both are numbers (`0.0` is `0`, but `5e1` is not `50`). Keys are case-sensitive, and only plain `=` assignments count.\n- A block value must hold exactly the entries shown, in any order.\n- A field that may only appear once in a block is reported only where it does: removing one of several could change which one the game uses. Fields marked as repeatable are reported each time.\n- [`--fix`](#--fix) removes each field with its line, tidying the blank lines around it. It never deletes a comment: a field with a comment inside it, or after it on its line, is reported but left in place, and comment lines above it stay.",
+      "summary": "Fields set to their default value, or that otherwise have no effect.",
+      "title": "Redundant fields",
+      "what": "Reports fields that change nothing: a field set to the value the game uses when it is missing, such as `fire_only_once = no` in a decision, or a trigger block that is always true. These are the fields it knows, and the blocks each applies to:",
+      "why": "A field that changes nothing only makes the block longer, and a reader may take it to matter."
     },
     {
       "applies_to": [],
