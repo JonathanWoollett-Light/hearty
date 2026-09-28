@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/JonathanWoollett-Light/hearty/compare/v0.2.0...v0.2.1) - 2026-09-28
+
+### Added
+
+- tooling, cleanup and website
+
+### Fixed
+
+- small description
+
+### Other
+
+- de-slopify website
+
 ## [0.2.0](https://github.com/JonathanWoollett-Light/hearty/compare/v0.1.9...v0.2.0) - 2026-09-27
 
 ### Added
