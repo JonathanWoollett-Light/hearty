@@ -220,15 +220,13 @@
     );
   }
 
-  function terminal(command, output, title) {
+  function terminal(command, output) {
     return (
-      '<div class="terminal"><div class="terminal-head"><span></span><span></span><span></span><b>' +
-      escapeHtml(title || "terminal") +
-      '</b></div><pre tabindex="0"><span class="prompt">$ </span><span class="cmd">' +
+      '<pre class="terminal" tabindex="0"><span class="prompt">$ </span><span class="cmd">' +
       escapeHtml(command) +
       "</span>\n" +
       output +
-      "</pre></div>"
+      "</pre>"
     );
   }
 
@@ -290,8 +288,12 @@
   const groups = new Map(DATA.groups.map((group) => [group.id, group]));
   const kinds = new Map(DATA.block_kinds.map((kind) => [kind.id, kind]));
   const rulesById = new Map(DATA.rules.map((rule) => [rule.id, rule]));
-  const kindChip = (id) =>
-    '<a class="kind-chip" href="#field_order_' + escapeHtml(id) + '">' + escapeHtml(kinds.get(id).name) + "</a>";
+  // The redundant-fields rule's fields, by id (the rows of its table).
+  const fieldsById = new Map(
+    DATA.rules.flatMap((rule) => (rule.fields || []).map((field) => [field.id, field]))
+  );
+  const kindLink = (id) =>
+    '<a href="#field_order_' + escapeHtml(id) + '">' + escapeHtml(kinds.get(id).name) + "</a>";
 
   function ruleCard(rule) {
     const card = document.createElement("details");
@@ -339,7 +341,10 @@
             (kind.redundant_rules.length
               ? "<p>Redundant fields: " +
                 kind.redundant_rules
-                  .map((id) => '<a href="#' + escapeHtml(id) + '">' + inline(rulesById.get(id).title) + "</a>")
+                  .map(
+                    (id) =>
+                      '<a href="#' + escapeHtml(id) + '"><code>' + escapeHtml(fieldsById.get(id).field) + "</code></a>"
+                  )
                   .join(", ") +
                 ".</p>"
               : "") +
@@ -350,6 +355,32 @@
     );
   }
 
+  // The redundant-fields rule's table: each field, where it applies and why it changes
+  // nothing. Each row is a link target.
+  function fieldsTable(fields) {
+    return (
+      '<div class="table-scroll"><table class="fields"><thead><tr><th scope="col">Field</th>' +
+      '<th scope="col">In</th><th scope="col">Why it changes nothing</th></tr></thead><tbody>' +
+      fields
+        .map(
+          (field) =>
+            '<tr id="' +
+            escapeHtml(field.id) +
+            '"><td><code>' +
+            escapeHtml(field.field) +
+            "</code>" +
+            (field.repeatable ? '<span class="field-note">may repeat</span>' : "") +
+            "</td><td>" +
+            inline(field.where) +
+            "</td><td>" +
+            inline(field.why) +
+            "</td></tr>"
+        )
+        .join("") +
+      "</tbody></table></div>"
+    );
+  }
+
   function renderRuleBody(card) {
     if (card.dataset.rendered) return;
     card.dataset.rendered = "true";
@@ -357,7 +388,7 @@
     const group = groups.get(rule.group);
     const facts = [];
     if (rule.applies_to.length) {
-      facts.push(["Applies to", rule.applies_to.map(kindChip).join("")]);
+      facts.push(["Applies to", rule.applies_to.map(kindLink).join(", ")]);
     }
     if (rule.fix !== null) {
       facts.push([
@@ -371,6 +402,7 @@
       facts.map(([term, value]) => "<div><dt>" + term + ":</dt><dd>" + value + "</dd></div>").join("") +
       "</dl>";
     html += "<h4>What it does</h4>" + markdown(rule.what);
+    if (rule.fields) html += fieldsTable(rule.fields);
     if (rule.id === "field_order") html += fieldOrders();
     html += "<h4>Why</h4>" + markdown(rule.why);
     if (rule.notes) html += "<h4>Good to know</h4>" + markdown(rule.notes);
@@ -482,14 +514,16 @@
       section.id = "group-" + group.id;
       section.dataset.group = group.id;
       section.setAttribute("aria-labelledby", "group-title-" + group.id);
+      // A group of one rule of the same name needs no heading of its own on screen.
+      const lone = rules.length === 1 && rules[0].title === group.name;
       section.innerHTML =
-        '<h3 class="group-title" id="group-title-' +
+        '<h3 class="group-title' +
+        (lone ? " visually-hidden" : "") +
+        '" id="group-title-' +
         escapeHtml(group.id) +
-        '"><span class="dot" aria-hidden="true"></span>' +
+        '">' +
         escapeHtml(group.name) +
-        ' <span class="section-count">' +
-        rules.length +
-        "</span></h3>" +
+        "</h3>" +
         (group.intro ? '<div class="group-intro">' + markdown(group.intro) + "</div>" : "");
       for (const rule of rules) {
         const card = ruleCard(rule);
@@ -506,7 +540,8 @@
             rule.notes,
             group.name,
             rule.applies_to.map((id) => kinds.get(id).name),
-            rule.id === "field_order" ? DATA.block_kinds.map((kind) => [kind.name, kind.fields]) : []
+            rule.id === "field_order" ? DATA.block_kinds.map((kind) => [kind.name, kind.fields]) : [],
+            (rule.fields || []).map((field) => [field.field, field.where, field.why])
           ),
         });
       }
@@ -543,28 +578,7 @@
       "</div></details>";
   }
 
-  function renderStats() {
-    const lints = DATA.rules.filter((rule) => groups.get(rule.group).category === "lint");
-    const redundant = DATA.rules.filter((rule) => rule.group === "redundant");
-    const formatting = DATA.rules.filter((rule) => groups.get(rule.group).category === "format");
-    // The redundant-field rules are lints too: counted apart, so the counts add up to the
-    // number of rules.
-    const stats = [
-      [lints.length - redundant.length, "lints", "localisation"],
-      [redundant.length, "redundant-field rules", "redundant"],
-      [formatting.length, "formatting rules", "sorting"],
-      [DATA.block_kinds.length, "block kinds with a field order", "field_order"],
-      [DATA.options.length, "options", "options"],
-    ];
-    $("#stats").innerHTML = stats
-      .map(
-        ([count, label, group]) =>
-          '<li data-group="' + group + '"><span class="dot" aria-hidden="true"></span><b>' + count + "</b> " + label + "</li>"
-      )
-      .join("");
-    $("#lints-count").textContent = lints.length;
-    $("#formatting-count").textContent = formatting.length;
-    $("#options-count").textContent = DATA.options.length;
+  function renderConstants() {
     for (const element of document.querySelectorAll("[data-constant]")) {
       element.textContent = DATA.constants[element.dataset.constant];
     }
@@ -582,7 +596,7 @@
     const chip = (id, name, count) =>
       '<button class="chip" type="button" data-group="' +
       id +
-      '" aria-pressed="false"><span class="dot" aria-hidden="true"></span>' +
+      '" aria-pressed="false">' +
       escapeHtml(name) +
       ' <span class="chip-count">' +
       count +
@@ -685,6 +699,10 @@
       renderRuleBody(document.getElementById("field_order"));
       target = document.getElementById(id);
     }
+    if (!target && fieldsById.has(id)) {
+      renderRuleBody(document.getElementById("redundant_fields"));
+      target = document.getElementById(id);
+    }
     if (!target) return;
     if (target.closest("[hidden]")) clearFilters();
     for (let element = target; element; element = element.parentElement) {
@@ -694,7 +712,7 @@
       }
     }
     target.scrollIntoView({ block: "start" });
-    const card = target.closest(".rule, .option, .kind");
+    const card = target.closest("tr, .kind, .rule, .option");
     if (card) {
       card.classList.remove("flash");
       void card.offsetWidth;
@@ -725,7 +743,7 @@
 
   /* ---- Start ------------------------------------------------------------------------ */
 
-  renderStats();
+  renderConstants();
   renderOverview();
   renderGroups("lint", $("#lint-groups"));
   renderGroups("format", $("#format-groups"));

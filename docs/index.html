@@ -6,7 +6,7 @@
 <title>hearty rules</title>
 <meta name="description" content="Every lint and formatting rule of hearty, the linter and formatter for Hearts of Iron IV mods: what it does, why, and an example made by running it.">
 <meta name="color-scheme" content="dark light">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%23FF4D6D' d='M16 29 3.6 16.9A7.6 7.6 0 0 1 16 7.2a7.6 7.6 0 0 1 12.4 9.7Z'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%23C95B5B' d='M16 29 3.6 16.9A7.6 7.6 0 0 1 16 7.2a7.6 7.6 0 0 1 12.4 9.7Z'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 <script>
   // Before the page paints, so a chosen theme never flashes the other one.
@@ -21,13 +21,15 @@
 <body>
 <a class="skip" href="#main">Skip to the rules</a>
 
-<header class="site-header" id="top">
-  <div class="wrap">
-    <div class="topbar">
-      <a class="brand" href="#overview" aria-label="hearty rules, top of the page">
-        <svg class="heart" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 29 3.6 16.9A7.6 7.6 0 0 1 16 7.2a7.6 7.6 0 0 1 12.4 9.7Z"/></svg>
-        <span>hearty</span>
-      </a>
+<div class="toolbar">
+  <div class="wrap toolbar-inner">
+    <div class="search" role="search">
+      <label class="visually-hidden" for="search">Search rules and options</label>
+      <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>
+      <input id="search" type="search" placeholder="Search rules and options" autocomplete="off" spellcheck="false">
+      <kbd class="search-key" aria-hidden="true">/</kbd>
+    </div>
+    <div class="toolbar-links">
       <nav class="nav" aria-label="Sections">
         <a href="#lints">Lints</a>
         <a href="#formatting">Formatting</a>
@@ -40,22 +42,6 @@
         <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.6A8.5 8.5 0 0 1 9.4 3.5a8.5 8.5 0 1 0 11.1 11.1Z"/></svg>
       </button>
     </div>
-    <div class="hero">
-      <h1>hearty rules</h1>
-      <p class="lede">Every lint and formatting rule of <strong>hearty</strong>, the linter and formatter for Hearts of Iron IV mods: what it does, why, and an example made by running hearty on it.</p>
-      <ul class="stats" id="stats" aria-label="What hearty checks"></ul>
-    </div>
-  </div>
-</header>
-
-<div class="toolbar" role="search">
-  <div class="wrap toolbar-inner">
-    <div class="search">
-      <label class="visually-hidden" for="search">Search rules and options</label>
-      <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>
-      <input id="search" type="search" placeholder="Search rules and options" autocomplete="off" spellcheck="false">
-      <kbd class="search-key" aria-hidden="true">/</kbd>
-    </div>
     <div class="filters" id="filters" role="group" aria-label="Show only these groups"></div>
     <div class="toolbar-end">
       <p class="count" id="count" aria-live="polite"></p>
@@ -66,6 +52,7 @@
 </div>
 
 <main id="main" class="wrap" tabindex="-1">
+  <h1 class="visually-hidden">hearty rules</h1>
   <noscript><p class="notice">This page needs JavaScript to show the rules. Without it, every rule, option and example is in <a href="rules.js">rules.js</a>, the data this page shows, and <code>hearty --help</code> describes the options.</p></noscript>
 
   <section id="overview" class="section" aria-labelledby="overview-title">
@@ -78,8 +65,9 @@
       <pre class="commands" aria-label="Common commands"><code><span class="c-cmd">hearty</span>                <span class="c-com"># lint the mod in this folder</span>
 <span class="c-cmd">hearty</span> --fix          <span class="c-com"># remove redundant fields</span>
 <span class="c-cmd">hearty</span> --format       <span class="c-com"># format its script files</span>
-<span class="c-cmd">hearty</span> --check --lint <span class="c-com"># in CI: fail on unformatted files,</span>
-                      <span class="c-com"># missing localisation or redundant fields</span></code></pre>
+<span class="c-cmd">hearty</span> --check --lint <span class="c-com"># in CI: fail on unformatted</span>
+                      <span class="c-com"># files, missing localisation</span>
+                      <span class="c-com"># or redundant fields</span></code></pre>
       <figure class="overview-run">
         <figcaption>A lint run on a small mod</figcaption>
         <div id="overview-run"></div>
@@ -88,19 +76,19 @@
   </section>
 
   <section id="lints" class="section" aria-labelledby="lints-title">
-    <h2 id="lints-title">Lints <span class="section-count" id="lints-count"></span></h2>
+    <h2 id="lints-title">Lints</h2>
     <p class="section-intro"><code>hearty</code> (or <code>hearty --lint</code>) runs every lint, and exits with an error when it finds missing localisation or redundant fields. It shows the first <span data-constant="max_shown">10</span> findings of each kind in full, and counts the rest. Lints marked <span class="badge badge-fix">--fix</span> are fixed by <a href="#--fix"><code>hearty --fix</code></a>.</p>
     <div id="lint-groups"></div>
   </section>
 
   <section id="formatting" class="section" aria-labelledby="formatting-title">
-    <h2 id="formatting-title">Formatting <span class="section-count" id="formatting-count"></span></h2>
+    <h2 id="formatting-title">Formatting</h2>
     <p class="section-intro"><a href="#--format"><code>hearty --format</code></a> applies these rules, in the order listed (joining short blocks and normalising spacing in one pass), to the <code>*.txt</code> files under <code>common/</code>, <code>events/</code> and <code>history/</code>, and <a href="#--check"><code>hearty --check</code></a> reports what they would change without writing, failing if any file would change. A file that doesn't parse, or isn't UTF-8, is left as it is. Every token and every word of every comment is kept, in order, and so are line endings and a leading BOM.</p>
     <div id="format-groups"></div>
   </section>
 
   <section id="options" class="section" aria-labelledby="options-title">
-    <h2 id="options-title">Options <span class="section-count" id="options-count"></span></h2>
+    <h2 id="options-title">Options</h2>
     <p class="section-intro">Usage: <code>hearty [OPTIONS] [PATH]</code>. The actions are <a href="#--lint"><code>--lint</code></a> (the default when none is given), <a href="#--fix"><code>--fix</code></a>, <a href="#--format"><code>--format</code></a> and <a href="#--check"><code>--check</code></a>. Given together, they run in the order <code>--fix</code>, <code>--format</code>, <code>--check</code>, <code>--lint</code>, in one pass over the files on every core: each file is read once and written at most once. A file that can't be written is reported, isn't counted as fixed or formatted, and makes hearty exit with an error once everything else is done.</p>
     <div class="options" id="option-list"></div>
 
@@ -114,7 +102,7 @@
 
 <footer class="site-footer">
   <div class="wrap">
-    <p><span class="heart-text" aria-hidden="true">♥</span> hearty is MIT licensed. This page is generated from its code and output by <a href="https://github.com/JonathanWoollett-Light/hearty/blob/master/tests/docs.rs"><code>tests/docs.rs</code></a>; a test fails when it falls out of date.</p>
+    <p>hearty is MIT licensed. This page is generated from its code and output by <a href="https://github.com/JonathanWoollett-Light/hearty/blob/master/tests/docs.rs"><code>tests/docs.rs</code></a>; a test fails when it falls out of date.</p>
   </div>
 </footer>
 </body>
