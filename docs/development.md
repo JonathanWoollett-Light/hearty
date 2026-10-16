@@ -30,7 +30,7 @@ After changing a rule, an option, `--help`, or anything hearty prints or writes 
 HEARTY_BLESS=1 cargo test --test docs
 ```
 
-`.github/workflows/pages.yml` publishes `docs/` when a push to master changes it. It needs **Settings → Pages → Build and deployment → Source** set to "GitHub Actions", once.
+`.github/workflows/pages.yml` publishes `docs/` when a push to master changes it, adding a hash of each file's contents to the URLs `index.html` loads its stylesheet and scripts from, so that a browser never pairs a new page with old files it cached. It needs **Settings → Pages → Build and deployment → Source** set to "GitHub Actions", once.
 
 ### Corpus tests
 

@@ -44,6 +44,21 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
+      # Pages serves every file with a 10-minute cache, so after a deploy a browser can
+      # pair the new index.html with the old style.css and app.js, and the page breaks.
+      # Adding a hash of each file's contents to its URL makes a page load the files it
+      # was deployed with.
+      - name: Version the stylesheet and scripts
+        run: |
+          for file in style.css app.js rules.js; do
+            version=$(sha256sum "docs/$file" | cut -c1-12)
+            sed -i "s|\"$file\"|\"$file?v=$version\"|g" docs/index.html
+            if ! grep -qF "\"$file?v=$version\"" docs/index.html; then
+              echo "::error file=docs/index.html::docs/index.html doesn't load $file"
+              exit 1
+            fi
+          done
+
       - name: Upload the site
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
